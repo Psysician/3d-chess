@@ -1,0 +1,13 @@
+[package]
+name = "chess_persistence"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+chess_core = { path = "../chess_core" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

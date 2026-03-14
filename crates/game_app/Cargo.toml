@@ -1,0 +1,22 @@
+[package]
+name = "game_app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "game_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "game_app"
+path = "src/main.rs"
+
+[dependencies]
+bevy.workspace = true
+chess_core = { path = "../chess_core" }
+chess_persistence = { path = "../chess_persistence" }
+engine_uci = { path = "../engine_uci" }
+
+[lints]
+workspace = true
