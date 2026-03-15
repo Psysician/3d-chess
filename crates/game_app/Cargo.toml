@@ -18,5 +18,8 @@ chess_core = { path = "../chess_core" }
 chess_persistence = { path = "../chess_persistence" }
 engine_uci = { path = "../engine_uci" }
 
+[dev-dependencies]
+tempfile = "3.15.0"
+
 [lints]
 workspace = true

@@ -413,13 +413,10 @@ M2 already delivered a real local playable loop, so M3 is not about more chess r
 +            snapshot.metadata.label = format!("Manual Save {now}");
 +        }
 +        let requested_slot = snapshot.metadata.session_id.trim();
-+        if requested_slot.is_empty() || self.manual_save_path(requested_slot).exists() {
-+            // Manual saves keep prior history even when the UI precomputes a label slug.
-+            snapshot.metadata.session_id = self.next_manual_slot_id(if requested_slot.is_empty() {
-+                &snapshot.metadata.label
-+            } else {
-+                requested_slot
-+            })?;
++        if requested_slot.is_empty() {
++            // Fresh manual saves allocate unique history slots; explicit slot ids are overwrite targets.
++            snapshot.metadata.session_id =
++                self.next_manual_slot_id(&snapshot.metadata.label)?;
 +        }
 +        snapshot.metadata.save_kind = SaveKind::Manual;
 +        if snapshot.metadata.created_at_utc.is_none() {
@@ -1924,6 +1921,10 @@ M2 already delivered a real local playable loop, so M3 is not about more chess r
 +    state: Res<State<AppScreenState>>,
 +    mut menu_state: ResMut<ShellMenuState>,
 +) {
++    if !state.is_changed() {
++        return;
++    }
++
 +    match state.get() {
 +        AppScreenState::MainMenu => {
 +            menu_state.context = MenuContext::MainMenu;
@@ -3282,13 +3283,16 @@ M2 already delivered a real local playable loop, so M3 is not about more chess r
 -                next_state.set(AppScreenState::MainMenu);
 +                if *state.get() == AppScreenState::InMatch
 +                    && menu_state.context == MenuContext::InMatchOverlay
-+                    && save_state.settings.confirm_actions.abandon_match
 +                {
-+                    menu_actions.send(MenuAction::RequestConfirmation(
-+                        ConfirmationKind::AbandonMatch,
-+                    ));
++                    if save_state.settings.confirm_actions.abandon_match {
++                        menu_actions.send(MenuAction::RequestConfirmation(
++                            ConfirmationKind::AbandonMatch,
++                        ));
++                    } else {
++                        save_requests.send(SaveLoadRequest::ClearRecovery);
++                        menu_actions.send(MenuAction::ReturnToMenu);
++                    }
 +                } else {
-+                    save_requests.send(SaveLoadRequest::ClearRecovery);
 +                    menu_actions.send(MenuAction::ReturnToMenu);
 +                }
 +            }

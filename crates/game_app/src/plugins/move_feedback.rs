@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use chess_core::{AutomaticDrawReason, DrawReason, GameOutcome, GameStatus, Side, WinReason};
 
 use super::piece_view::PieceVisual;
+use super::save_load::SaveLoadState;
 use crate::app::AppScreenState;
 use crate::match_state::{ClaimedDrawReason, MatchSession};
 use crate::style::ShellTheme;
@@ -12,7 +13,10 @@ impl Plugin for MoveFeedbackPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(AppScreenState::InMatch), spawn_match_hud)
             .add_systems(OnExit(AppScreenState::InMatch), cleanup_match_hud)
-            .add_systems(Update, sync_match_hud.run_if(in_state(AppScreenState::InMatch)))
+            .add_systems(
+                Update,
+                sync_match_hud.run_if(in_state(AppScreenState::InMatch)),
+            )
             .add_systems(
                 Update,
                 animate_active_move.run_if(in_state(AppScreenState::InMatch)),
@@ -41,6 +45,9 @@ struct MatchStatusText;
 struct PromotionHintText;
 
 #[derive(Component)]
+struct PersistenceStatusText;
+
+#[derive(Component)]
 struct ClaimDrawButton;
 
 type HudTextQuery<'w, 's> = Query<
@@ -51,6 +58,7 @@ type HudTextQuery<'w, 's> = Query<
         Option<&'static TurnStatusText>,
         Option<&'static MatchStatusText>,
         Option<&'static PromotionHintText>,
+        Option<&'static PersistenceStatusText>,
     ),
 >;
 
@@ -61,7 +69,7 @@ fn spawn_match_hud(mut commands: Commands, theme: Res<ShellTheme>) {
                 position_type: PositionType::Absolute,
                 top: Val::Px(24.0),
                 left: Val::Px(24.0),
-                width: Val::Px(360.0),
+                width: Val::Px(380.0),
                 flex_direction: FlexDirection::Column,
                 row_gap: Val::Px(10.0),
                 padding: UiRect::all(Val::Px(18.0)),
@@ -98,6 +106,15 @@ fn spawn_match_hud(mut commands: Commands, theme: Res<ShellTheme>) {
                 TextColor(theme.ui_text),
                 PromotionHintText,
             ));
+            parent.spawn((
+                Text::new("Interrupted-session recovery is waiting for the next autosave."),
+                TextFont {
+                    font_size: 14.0,
+                    ..default()
+                },
+                TextColor(theme.ui_text),
+                PersistenceStatusText,
+            ));
             parent
                 .spawn((
                     Button,
@@ -133,9 +150,13 @@ fn cleanup_match_hud(mut commands: Commands, hud_query: Query<Entity, With<Match
 
 fn sync_match_hud(
     match_session: Res<MatchSession>,
+    save_state: Res<SaveLoadState>,
     mut text_query: HudTextQuery<'_, '_>,
 ) {
-    let turn_label = format!("{} to move", side_label(match_session.game_state().side_to_move()));
+    let turn_label = format!(
+        "{} to move",
+        side_label(match_session.game_state().side_to_move())
+    );
     let status_label = match_status_label(&match_session);
     let promotion_hint_label = if let Some(pending_move) = match_session.pending_promotion_move {
         format!(
@@ -148,14 +169,29 @@ fn sync_match_hud(
     } else {
         String::from("Promotion uses Q / R / B / N.")
     };
+    let persistence_label = save_state
+        .last_error
+        .clone()
+        .or_else(|| save_state.last_message.clone())
+        .unwrap_or_else(|| {
+            if match_session.is_recovery_dirty() {
+                String::from("Interrupted-session recovery is waiting for the next autosave.")
+            } else {
+                String::from("Interrupted-session recovery is current.")
+            }
+        });
 
-    for (mut text, turn_marker, status_marker, promotion_marker) in &mut text_query {
+    for (mut text, turn_marker, status_marker, promotion_marker, persistence_marker) in
+        &mut text_query
+    {
         if turn_marker.is_some() {
             text.0 = turn_label.clone();
         } else if status_marker.is_some() {
             text.0 = status_label.clone();
         } else if promotion_marker.is_some() {
             text.0 = promotion_hint_label.clone();
+        } else if persistence_marker.is_some() {
+            text.0 = persistence_label.clone();
         }
     }
 }
@@ -258,9 +294,7 @@ fn match_status_label(match_session: &MatchSession) -> String {
         GameStatus::Ongoing {
             in_check: false,
             draw_available,
-        } if draw_available.is_claimable() => {
-            String::from("Draw is claimable from this position.")
-        }
+        } if draw_available.is_claimable() => String::from("Draw is claimable from this position."),
         GameStatus::Ongoing { .. } => {
             if let Some(selected_square) = match_session.selected_square {
                 format!("Selected {selected_square}.")

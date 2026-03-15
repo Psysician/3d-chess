@@ -1,13 +1,21 @@
 mod app_shell;
 mod board_scene;
 mod input;
+mod menu;
 mod move_feedback;
 mod piece_view;
+mod save_load;
 mod scaffold;
 
 pub use app_shell::AppShellPlugin;
 pub use board_scene::{BoardScenePlugin, BoardSquareVisual};
 pub use input::ShellInputPlugin;
+pub use menu::{
+    ConfirmationKind, MenuAction, MenuPanel, MenuPlugin, RecoveryBannerState, ShellMenuState,
+};
 pub use move_feedback::MoveFeedbackPlugin;
 pub use piece_view::{PieceViewPlugin, PieceVisual};
-pub use scaffold::{AiMatchPlugin, ChessAudioPlugin, MenuPlugin, SaveLoadPlugin};
+pub use save_load::{
+    SaveLoadPlugin, SaveLoadRequest, SaveLoadState, SaveRootOverride, SessionStoreResource,
+};
+pub use scaffold::{AiMatchPlugin, ChessAudioPlugin};
