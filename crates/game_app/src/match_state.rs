@@ -232,3 +232,78 @@ impl Default for MatchSession {
         Self::start_local_match()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chess_persistence::{GameSnapshot, PendingPromotionSnapshot, SaveKind};
+
+    fn square(name: &str) -> Square {
+        Square::from_algebraic(name).expect("test square must be valid")
+    }
+
+    fn sample_snapshot(dirty_recovery: bool) -> GameSnapshot {
+        GameSnapshot::from_parts(
+            GameState::from_fen("4k3/4P3/8/8/8/8/8/4K3 w - - 0 1")
+                .expect("fixture FEN should parse"),
+            SnapshotMetadata {
+                label: String::from("Fixture"),
+                created_at_utc: Some(String::from("2026-03-15T00:00:00Z")),
+                updated_at_utc: None,
+                notes: None,
+                save_kind: SaveKind::Manual,
+                session_id: String::from("fixture"),
+                recovery_key: None,
+            },
+            SnapshotShellState {
+                selected_square: Some(square("e7")),
+                pending_promotion: Some(PendingPromotionSnapshot {
+                    from: square("e7"),
+                    to: square("e8"),
+                }),
+                last_move: Some(Move::new(square("e7"), square("e8"))),
+                claimed_draw: Some(ClaimedDrawSnapshot::ThreefoldRepetition),
+                dirty_recovery,
+            },
+        )
+    }
+
+    #[test]
+    fn restore_from_snapshot_keeps_shell_bridge_fields() {
+        let session = MatchSession::restore_from_snapshot(&sample_snapshot(true));
+        assert_eq!(session.selected_square, Some(square("e7")));
+        assert_eq!(
+            session.pending_promotion_move,
+            Some(Move::new(square("e7"), square("e8")))
+        );
+        assert_eq!(
+            session.claimed_draw_reason(),
+            Some(ClaimedDrawReason::ThreefoldRepetition)
+        );
+        assert!(session.summary().pending_promotion);
+        assert!(session.summary().dirty_recovery);
+    }
+
+    #[test]
+    fn replace_game_state_clears_interaction_and_marks_recovery_dirty() {
+        let mut session = MatchSession::restore_from_snapshot(&sample_snapshot(false));
+        session.replace_game_state(GameState::starting_position());
+
+        assert_eq!(session.selected_square, None);
+        assert_eq!(session.pending_promotion_move, None);
+        assert_eq!(session.last_move, None);
+        assert!(session.is_recovery_dirty());
+    }
+
+    #[test]
+    fn claim_draw_updates_summary_without_reaching_through_game_state() {
+        let mut session = MatchSession::start_local_match();
+        session.replace_game_state(
+            GameState::from_fen("4k3/8/8/8/8/8/8/4K3 w - - 100 1")
+                .expect("fixture FEN should parse"),
+        );
+        assert!(session.claim_draw());
+        assert!(session.is_finished());
+        assert!(session.summary().dirty_recovery);
+    }
+}

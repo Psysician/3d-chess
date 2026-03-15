@@ -208,6 +208,14 @@ mod tests {
     use bevy::ecs::system::SystemState;
     use chess_core::Square;
 
+    type KeyboardActionSystemState<'w, 's> = SystemState<(
+        Option<Res<'w, ButtonInput<KeyCode>>>,
+        Res<'w, ShellMenuState>,
+        ResMut<'w, MatchSession>,
+        MessageWriter<'w, MenuAction>,
+        MessageWriter<'w, SaveLoadRequest>,
+    )>;
+
     type SquareClickSystemState<'w, 's> = SystemState<(
         Option<Res<'w, ButtonInput<MouseButton>>>,
         Res<'w, HoveredSquare>,
@@ -249,5 +257,182 @@ mod tests {
             ..Default::default()
         }));
         assert!(!overlay_captures_match_input(&ShellMenuState::default()));
+    }
+
+    #[test]
+    fn clicking_without_hover_clears_selection_and_marks_recovery_dirty() {
+        let mut world = World::new();
+        let mut mouse_buttons = ButtonInput::<MouseButton>::default();
+        mouse_buttons.press(MouseButton::Left);
+        world.insert_resource(mouse_buttons);
+        world.insert_resource(HoveredSquare(None));
+        world.insert_resource(ShellMenuState::default());
+
+        let mut match_session = MatchSession::start_local_match();
+        match_session.selected_square = Some(Square::from_algebraic("e2").expect("valid square"));
+        match_session.mark_recovery_persisted();
+        world.insert_resource(match_session);
+
+        let mut system_state: SquareClickSystemState<'_, '_> = SystemState::new(&mut world);
+        let (mouse_buttons, hovered_square, menu_state, match_session) =
+            system_state.get_mut(&mut world);
+        handle_square_clicks(mouse_buttons, hovered_square, menu_state, match_session);
+
+        let match_session = world.resource::<MatchSession>();
+        assert_eq!(match_session.selected_square, None);
+        assert!(match_session.is_recovery_dirty());
+    }
+
+    #[test]
+    fn clicking_selected_square_deselects_and_marks_recovery_dirty() {
+        let mut world = World::new();
+        let mut mouse_buttons = ButtonInput::<MouseButton>::default();
+        mouse_buttons.press(MouseButton::Left);
+        world.insert_resource(mouse_buttons);
+        world.insert_resource(HoveredSquare(Some(
+            Square::from_algebraic("e2").expect("valid square"),
+        )));
+        world.insert_resource(ShellMenuState::default());
+
+        let mut match_session = MatchSession::start_local_match();
+        match_session.selected_square = Some(Square::from_algebraic("e2").expect("valid square"));
+        match_session.mark_recovery_persisted();
+        world.insert_resource(match_session);
+
+        let mut system_state: SquareClickSystemState<'_, '_> = SystemState::new(&mut world);
+        let (mouse_buttons, hovered_square, menu_state, match_session) =
+            system_state.get_mut(&mut world);
+        handle_square_clicks(mouse_buttons, hovered_square, menu_state, match_session);
+
+        let match_session = world.resource::<MatchSession>();
+        assert_eq!(match_session.selected_square, None);
+        assert!(match_session.is_recovery_dirty());
+    }
+
+    #[test]
+    fn clicking_friendly_piece_selects_and_reselects_current_side_piece() {
+        let mut world = World::new();
+        let mut mouse_buttons = ButtonInput::<MouseButton>::default();
+        mouse_buttons.press(MouseButton::Left);
+        world.insert_resource(mouse_buttons);
+        world.insert_resource(HoveredSquare(Some(
+            Square::from_algebraic("e2").expect("valid square"),
+        )));
+        world.insert_resource(ShellMenuState::default());
+        world.insert_resource(MatchSession::start_local_match());
+
+        let mut system_state: SquareClickSystemState<'_, '_> = SystemState::new(&mut world);
+        {
+            let (mouse_buttons, hovered_square, menu_state, match_session) =
+                system_state.get_mut(&mut world);
+            handle_square_clicks(mouse_buttons, hovered_square, menu_state, match_session);
+        }
+        assert_eq!(
+            world.resource::<MatchSession>().selected_square,
+            Some(Square::from_algebraic("e2").expect("valid square"))
+        );
+
+        world.insert_resource(HoveredSquare(Some(
+            Square::from_algebraic("d2").expect("valid square"),
+        )));
+        {
+            let (mouse_buttons, hovered_square, menu_state, match_session) =
+                system_state.get_mut(&mut world);
+            handle_square_clicks(mouse_buttons, hovered_square, menu_state, match_session);
+        }
+        assert_eq!(
+            world.resource::<MatchSession>().selected_square,
+            Some(Square::from_algebraic("d2").expect("valid square"))
+        );
+    }
+
+    #[test]
+    fn clicking_illegal_target_clears_selection() {
+        let mut world = World::new();
+        let mut mouse_buttons = ButtonInput::<MouseButton>::default();
+        mouse_buttons.press(MouseButton::Left);
+        world.insert_resource(mouse_buttons);
+        world.insert_resource(HoveredSquare(Some(
+            Square::from_algebraic("e5").expect("valid square"),
+        )));
+        world.insert_resource(ShellMenuState::default());
+
+        let mut match_session = MatchSession::start_local_match();
+        match_session.selected_square = Some(Square::from_algebraic("e2").expect("valid square"));
+        world.insert_resource(match_session);
+
+        let mut system_state: SquareClickSystemState<'_, '_> = SystemState::new(&mut world);
+        let (mouse_buttons, hovered_square, menu_state, match_session) =
+            system_state.get_mut(&mut world);
+        handle_square_clicks(mouse_buttons, hovered_square, menu_state, match_session);
+
+        assert_eq!(world.resource::<MatchSession>().selected_square, None);
+    }
+
+    #[test]
+    fn promotion_target_stages_pending_promotion_move() {
+        let mut world = World::new();
+        let mut mouse_buttons = ButtonInput::<MouseButton>::default();
+        mouse_buttons.press(MouseButton::Left);
+        world.insert_resource(mouse_buttons);
+        world.insert_resource(HoveredSquare(Some(
+            Square::from_algebraic("e8").expect("valid square"),
+        )));
+        world.insert_resource(ShellMenuState::default());
+
+        let mut match_session = MatchSession::start_local_match();
+        match_session.replace_game_state(
+            chess_core::GameState::from_fen("7k/4P3/8/8/8/8/8/4K3 w - - 0 1")
+                .expect("fixture FEN should parse"),
+        );
+        match_session.selected_square = Some(Square::from_algebraic("e7").expect("valid square"));
+        world.insert_resource(match_session);
+
+        let mut system_state: SquareClickSystemState<'_, '_> = SystemState::new(&mut world);
+        let (mouse_buttons, hovered_square, menu_state, match_session) =
+            system_state.get_mut(&mut world);
+        handle_square_clicks(mouse_buttons, hovered_square, menu_state, match_session);
+
+        assert_eq!(
+            world.resource::<MatchSession>().pending_promotion_move,
+            Some(Move::new(
+                Square::from_algebraic("e7").expect("valid square"),
+                Square::from_algebraic("e8").expect("valid square"),
+            ))
+        );
+    }
+
+    #[test]
+    fn escape_clears_pending_promotion_before_pause_overlay() {
+        let mut app = App::new();
+        app.add_message::<MenuAction>();
+        app.add_message::<SaveLoadRequest>();
+        app.insert_resource(ButtonInput::<KeyCode>::default());
+        app.insert_resource(ShellMenuState::default());
+
+        let mut match_session = MatchSession::start_local_match();
+        match_session.pending_promotion_move = Some(Move::new(
+            Square::from_algebraic("e7").expect("valid square"),
+            Square::from_algebraic("e8").expect("valid square"),
+        ));
+        app.insert_resource(match_session);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Escape);
+
+        let mut system_state: KeyboardActionSystemState<'_, '_> = SystemState::new(app.world_mut());
+        let (keyboard_input, menu_state, match_session, menu_actions, save_requests) =
+            system_state.get_mut(app.world_mut());
+        handle_keyboard_match_actions(
+            keyboard_input,
+            menu_state,
+            match_session,
+            menu_actions,
+            save_requests,
+        );
+
+        let match_session = app.world().resource::<MatchSession>();
+        assert_eq!(match_session.pending_promotion_move, None);
+        assert!(match_session.is_recovery_dirty());
     }
 }

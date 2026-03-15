@@ -61,3 +61,32 @@ impl BoardState {
             .map(|(square, _)| square)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{PieceKind, Side};
+
+    #[test]
+    fn board_state_places_removes_and_filters_pieces() {
+        let white_king = Piece::new(Side::White, PieceKind::King);
+        let black_king = Piece::new(Side::Black, PieceKind::King);
+        let e1 = Square::from_coords_unchecked(4, 0);
+        let e8 = Square::from_coords_unchecked(4, 7);
+
+        let mut board = BoardState::empty().place_piece(e1, white_king);
+        board.set_piece(e8, black_king);
+
+        assert!(board.contains_piece(e1));
+        assert_eq!(board.piece_count(), 2);
+        assert_eq!(board.piece_at(e8), Some(black_king));
+        assert_eq!(board.king_square(Side::White), Some(e1));
+        assert_eq!(board.king_square(Side::Black), Some(e8));
+
+        let white_pieces = board.iter_side(Side::White).collect::<Vec<_>>();
+        assert_eq!(white_pieces, vec![(e1, white_king)]);
+        assert_eq!(board.iter().count(), 2);
+        assert_eq!(board.remove_piece(e1), Some(white_king));
+        assert!(!board.contains_piece(e1));
+    }
+}

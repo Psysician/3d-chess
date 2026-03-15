@@ -1,5 +1,6 @@
 //! Shell persistence orchestration for manual saves, interrupted-session recovery, and settings.
 //! Repository I/O lives here so manual saves, interrupted-session recovery, and the shipped settings trio of startup recovery, destructive confirmations, and display mode stay behind one snapshot-based boundary. (ref: DL-002) (ref: DL-005) (ref: DL-007) (ref: DL-008)
+//! Extracted helpers carry branch-heavy copy and recovery-visibility rules so the Bevy plugin remains in scope while direct tests cover the decision surface. (ref: DL-002) (ref: DL-004) (ref: DL-007)
 
 use std::path::PathBuf;
 
@@ -11,6 +12,7 @@ use chess_persistence::{
 };
 
 use super::menu::{MenuContext, MenuPanel, RecoveryBannerState, ShellMenuState};
+use super::save_load_logic;
 use crate::app::AppScreenState;
 use crate::match_state::{MatchLaunchIntent, MatchSession, PendingLoadedSnapshot};
 
@@ -33,13 +35,13 @@ type SaveRequestRuntime<'w> = (
     ResMut<'w, NextState<AppScreenState>>,
 );
 
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, PartialEq, Eq, Default)]
 pub struct SaveRootOverride(pub Option<PathBuf>);
 
 #[derive(Resource, Debug, Clone)]
 pub struct SessionStoreResource(pub SessionStore);
 
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone, PartialEq, Eq, Default)]
 pub struct SaveLoadState {
     pub manual_saves: Vec<SavedSessionSummary>,
     pub recovery: Option<SavedSessionSummary>,
@@ -102,7 +104,7 @@ fn setup_store(
     };
     let store_resource = SessionStoreResource(store.clone());
     // Startup preloads the save index and recovery banner from the repository so the main menu reflects persisted shell state immediately. (ref: DL-003) (ref: DL-008)
-    save_state.last_error = combine_persistence_errors([
+    save_state.last_error = save_load_logic::combine_persistence_errors([
         startup_error,
         refresh_store_index_from_resource(&store_resource, &mut save_state, &mut recovery_banner),
     ]);
@@ -132,7 +134,7 @@ fn maybe_resume_recovery_on_startup(
             }
         }
         RecoveryStartupPolicy::Ignore => {
-            sync_cached_recovery_visibility(&save_state, &mut recovery_banner);
+            save_load_logic::sync_cached_recovery_visibility(&save_state, &mut recovery_banner);
         }
         RecoveryStartupPolicy::Ask => {}
     }
@@ -195,7 +197,7 @@ fn handle_save_load_requests(
                     Ok(summary) => {
                         save_state.last_error = None;
                         save_state.last_message =
-                            Some(format!("Saved match as {}.", summary.label));
+                            Some(save_load_logic::manual_save_message(&summary));
                         menu_state.selected_save = Some(summary.slot_id.clone());
                         save_state.last_error = refresh_store_index_from_resource(
                             &store,
@@ -224,7 +226,7 @@ fn handle_save_load_requests(
             SaveLoadRequest::DeleteManual { slot_id } => match store.0.delete_manual(slot_id) {
                 Ok(()) => {
                     save_state.last_error = None;
-                    save_state.last_message = Some(format!("Deleted save {slot_id}."));
+                    save_state.last_message = Some(save_load_logic::deleted_save_message(slot_id));
                     if menu_state.selected_save.as_deref() == Some(slot_id.as_str()) {
                         menu_state.selected_save = None;
                     }
@@ -286,11 +288,17 @@ fn handle_save_load_requests(
                 Ok(()) => {
                     save_state.last_error = None;
                     save_state.last_message = Some(String::from("Saved shell settings."));
-                    sync_cached_recovery_visibility(&save_state, &mut recovery_banner);
+                    save_load_logic::sync_cached_recovery_visibility(
+                        &save_state,
+                        &mut recovery_banner,
+                    );
                 }
                 Err(_) => {
                     save_state.last_error = Some(String::from("Unable to save shell settings."));
-                    sync_cached_recovery_visibility(&save_state, &mut recovery_banner);
+                    save_load_logic::sync_cached_recovery_visibility(
+                        &save_state,
+                        &mut recovery_banner,
+                    );
                 }
             },
         }
@@ -352,7 +360,7 @@ fn clear_result_recovery_cache(
             save_state.last_error = Some(String::from(
                 "Unable to clear interrupted-session recovery.",
             ));
-            sync_cached_recovery_visibility(save_state, recovery_banner);
+            save_load_logic::sync_cached_recovery_visibility(save_state, recovery_banner);
         }
     }
 }
@@ -392,7 +400,7 @@ fn refresh_store_index_from_resource(
         )),
     }
 
-    combine_persistence_errors(errors.into_iter().map(Some))
+    save_load_logic::combine_persistence_errors(errors.into_iter().map(Some))
 }
 
 fn resolve_session_store(
@@ -418,22 +426,13 @@ fn resolve_session_store(
     }
 }
 
-fn combine_persistence_errors(errors: impl IntoIterator<Item = Option<String>>) -> Option<String> {
-    let messages = errors.into_iter().flatten().collect::<Vec<_>>();
-    if messages.is_empty() {
-        None
-    } else {
-        Some(messages.join(" "))
-    }
-}
-
 fn set_cached_recovery(
     recovery: Option<SavedSessionSummary>,
     save_state: &mut SaveLoadState,
     recovery_banner: &mut RecoveryBannerState,
 ) {
     save_state.recovery = recovery;
-    sync_cached_recovery_visibility(save_state, recovery_banner);
+    save_load_logic::sync_cached_recovery_visibility(save_state, recovery_banner);
 }
 
 fn clear_cached_recovery(
@@ -441,32 +440,7 @@ fn clear_cached_recovery(
     recovery_banner: &mut RecoveryBannerState,
 ) {
     save_state.recovery = None;
-    hide_recovery_banner(recovery_banner);
-}
-
-fn hide_recovery_banner(recovery_banner: &mut RecoveryBannerState) {
-    recovery_banner.available = false;
-    recovery_banner.dirty = false;
-    recovery_banner.label = None;
-}
-
-fn sync_cached_recovery_visibility(
-    save_state: &SaveLoadState,
-    recovery_banner: &mut RecoveryBannerState,
-) {
-    let Some(summary) = save_state.recovery.as_ref() else {
-        hide_recovery_banner(recovery_banner);
-        return;
-    };
-
-    if save_state.settings.recovery_policy == RecoveryStartupPolicy::Ignore {
-        hide_recovery_banner(recovery_banner);
-        return;
-    }
-
-    recovery_banner.available = true;
-    recovery_banner.dirty = false;
-    recovery_banner.label = Some(summary.label.clone());
+    save_load_logic::hide_recovery_banner(recovery_banner);
 }
 
 #[cfg(test)]
@@ -584,11 +558,11 @@ mod tests {
         };
         let mut recovery_banner = RecoveryBannerState::default();
 
-        sync_cached_recovery_visibility(&save_state, &mut recovery_banner);
+        save_load_logic::sync_cached_recovery_visibility(&save_state, &mut recovery_banner);
         assert!(!recovery_banner.available);
 
         save_state.settings.recovery_policy = RecoveryStartupPolicy::Ask;
-        sync_cached_recovery_visibility(&save_state, &mut recovery_banner);
+        save_load_logic::sync_cached_recovery_visibility(&save_state, &mut recovery_banner);
 
         assert!(recovery_banner.available);
         assert_eq!(recovery_banner.label.as_deref(), Some("Recovery Fixture"));
@@ -613,7 +587,7 @@ mod tests {
         };
         let mut recovery_banner = RecoveryBannerState::default();
 
-        sync_cached_recovery_visibility(&save_state, &mut recovery_banner);
+        save_load_logic::sync_cached_recovery_visibility(&save_state, &mut recovery_banner);
         clear_result_recovery_cache(&store, &mut save_state, &mut recovery_banner);
 
         assert_eq!(

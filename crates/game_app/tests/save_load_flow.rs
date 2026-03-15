@@ -1,8 +1,8 @@
 use std::fs;
 
 use chess_persistence::{
-    DisplayMode, GameSnapshot, RecoveryStartupPolicy, SaveKind, SessionStore, ShellSettings,
-    SnapshotMetadata, SnapshotShellState,
+    DisplayMode, GameSnapshot, RecoveryStartupPolicy, SaveKind, SavedSessionSummary, SessionStore,
+    ShellSettings, SnapshotMetadata, SnapshotShellState,
 };
 use tempfile::tempdir;
 
@@ -11,9 +11,10 @@ use bevy::state::app::StatesPlugin;
 use chess_core::{GameState, Move, PieceKind, Side, Square};
 use game_app::{
     AiMatchPlugin, AppScreenState, AppShellPlugin, BoardScenePlugin, ChessAudioPlugin,
-    MatchLaunchIntent, MatchSession, MenuAction, MenuPanel, MenuPlugin, MoveFeedbackPlugin,
-    PendingLoadedSnapshot, PieceViewPlugin, PieceVisual, RecoveryBannerState, SaveLoadPlugin,
-    SaveLoadRequest, SaveLoadState, SaveRootOverride, ShellInputPlugin, ShellMenuState, ShellTheme,
+    MatchLaunchIntent, MatchSession, MenuAction, MenuContext, MenuPanel, MenuPlugin,
+    MoveFeedbackPlugin, PendingLoadedSnapshot, PieceViewPlugin, PieceVisual, RecoveryBannerState,
+    SaveLoadPlugin, SaveLoadRequest, SaveLoadState, SaveRootOverride, ShellInputPlugin,
+    ShellMenuState, ShellTheme,
 };
 
 fn test_app(root: &std::path::Path) -> App {
@@ -334,4 +335,177 @@ fn entering_match_result_clears_recovery_label_cache() {
             .expect("recovery load should succeed")
             .is_none()
     );
+}
+
+#[test]
+fn load_manual_missing_slot_surfaces_error() {
+    let root = tempdir().expect("temporary directory should be created");
+    let mut app = test_app(root.path());
+    bootstrap_shell(&mut app);
+
+    app.world_mut().write_message(SaveLoadRequest::LoadManual {
+        slot_id: String::from("missing"),
+    });
+    app.update();
+
+    assert_eq!(
+        app.world()
+            .resource::<SaveLoadState>()
+            .last_error
+            .as_deref(),
+        Some("Unable to load the selected save.")
+    );
+}
+
+#[test]
+fn resume_recovery_without_snapshot_surfaces_absence_error() {
+    let root = tempdir().expect("temporary directory should be created");
+    let mut app = test_app(root.path());
+    bootstrap_shell(&mut app);
+
+    app.world_mut()
+        .write_message(SaveLoadRequest::ResumeRecovery);
+    app.update();
+
+    assert_eq!(
+        app.world()
+            .resource::<SaveLoadState>()
+            .last_error
+            .as_deref(),
+        Some("No interrupted session is available.")
+    );
+}
+
+#[test]
+fn resume_recovery_with_directory_backing_surfaces_failure_error() {
+    let root = tempdir().expect("temporary directory should be created");
+    fs::create_dir_all(root.path().join("recovery").join("current.json"))
+        .expect("directory-backed recovery path should exist");
+
+    let mut app = test_app(root.path());
+    bootstrap_shell(&mut app);
+    app.world_mut()
+        .write_message(SaveLoadRequest::ResumeRecovery);
+    app.update();
+
+    assert_eq!(
+        app.world()
+            .resource::<SaveLoadState>()
+            .last_error
+            .as_deref(),
+        Some("Unable to resume the interrupted session.")
+    );
+}
+
+#[test]
+fn delete_manual_request_clears_selected_slot_and_refreshes_index() {
+    let root = tempdir().expect("temporary directory should be created");
+    let mut app = test_app(root.path());
+    bootstrap_shell(&mut app);
+    enter_local_match(&mut app);
+
+    app.world_mut().write_message(SaveLoadRequest::SaveManual {
+        label: String::from("Delete Me"),
+        slot_id: None,
+    });
+    app.update();
+    app.update();
+
+    let slot_id = app.world().resource::<SaveLoadState>().manual_saves[0]
+        .slot_id
+        .clone();
+    assert_eq!(
+        app.world()
+            .resource::<ShellMenuState>()
+            .selected_save
+            .as_deref(),
+        Some(slot_id.as_str())
+    );
+
+    app.world_mut()
+        .write_message(SaveLoadRequest::DeleteManual { slot_id });
+    app.update();
+
+    assert!(
+        app.world()
+            .resource::<SaveLoadState>()
+            .manual_saves
+            .is_empty()
+    );
+    assert_eq!(app.world().resource::<ShellMenuState>().selected_save, None);
+    assert_eq!(
+        app.world()
+            .resource::<SaveLoadState>()
+            .last_message
+            .as_deref(),
+        Some("Deleted save delete-me.")
+    );
+}
+
+#[test]
+fn abandon_request_success_returns_to_main_menu_and_resets_overlay_state() {
+    let root = tempdir().expect("temporary directory should be created");
+    let mut app = test_app(root.path());
+    bootstrap_shell(&mut app);
+    enter_local_match(&mut app);
+
+    {
+        let mut menu_state = app.world_mut().resource_mut::<ShellMenuState>();
+        menu_state.panel = MenuPanel::LoadList;
+        menu_state.context = MenuContext::InMatchOverlay;
+        menu_state.confirmation = Some(game_app::ConfirmationKind::DeleteSave);
+    }
+
+    app.world_mut()
+        .write_message(SaveLoadRequest::AbandonMatchAndReturnToMenu);
+    app.update();
+    app.update();
+
+    assert_eq!(current_state(&app), AppScreenState::MainMenu);
+    let menu_state = app.world().resource::<ShellMenuState>();
+    assert_eq!(menu_state.panel, MenuPanel::Home);
+    assert_eq!(menu_state.context, MenuContext::MainMenu);
+    assert_eq!(menu_state.confirmation, None);
+    assert_eq!(
+        app.world()
+            .resource::<SaveLoadState>()
+            .last_message
+            .as_deref(),
+        Some("Returned to the main menu.")
+    );
+}
+
+#[test]
+fn persist_settings_failure_keeps_ignore_policy_banner_hidden() {
+    let root = tempdir().expect("temporary directory should be created");
+    let mut app = test_app(root.path());
+    bootstrap_shell(&mut app);
+
+    fs::create_dir_all(root.path().join("settings.json"))
+        .expect("directory-backed settings path should exist");
+    {
+        let mut save_state = app.world_mut().resource_mut::<SaveLoadState>();
+        save_state.recovery = Some(SavedSessionSummary {
+            slot_id: String::from("recovery"),
+            label: String::from("Interrupted Session"),
+            created_at_utc: None,
+            save_kind: SaveKind::Recovery,
+        });
+        save_state.settings.recovery_policy = RecoveryStartupPolicy::Ignore;
+    }
+
+    app.world_mut()
+        .write_message(SaveLoadRequest::PersistSettings);
+    app.update();
+
+    assert_eq!(
+        app.world()
+            .resource::<SaveLoadState>()
+            .last_error
+            .as_deref(),
+        Some("Unable to save shell settings.")
+    );
+    let recovery = app.world().resource::<RecoveryBannerState>();
+    assert!(!recovery.available);
+    assert_eq!(recovery.label, None);
 }

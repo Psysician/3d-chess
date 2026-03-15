@@ -1,6 +1,6 @@
 use chess_core::{
-    AutomaticDrawReason, DrawReason, GameOutcome, GameState, GameStatus, Move, Piece, PieceKind,
-    Side, Square, WinReason,
+    AutomaticDrawReason, DrawReason, FenError, GameOutcome, GameState, GameStatus, Move, MoveError,
+    Piece, PieceKind, Side, Square, WinReason,
 };
 
 fn square(name: &str) -> Square {
@@ -198,5 +198,40 @@ fn fifty_and_seventy_five_move_rules_are_distinct() {
         GameStatus::Finished(GameOutcome::Draw(DrawReason::Automatic(
             AutomaticDrawReason::SeventyFiveMoveRule,
         )))
+    );
+}
+
+#[test]
+fn from_fen_surfaces_invalid_tokens_as_distinct_errors() {
+    assert!(matches!(
+        GameState::from_fen("4k3/8/8/8/8/8/8/4K3 x - - 0 1"),
+        Err(FenError::InvalidSideToMove)
+    ));
+    assert!(matches!(
+        GameState::from_fen("4k3/8/8/8/8/8/8/4K3 w - z9 0 1"),
+        Err(FenError::InvalidEnPassantTarget)
+    ));
+    assert!(matches!(
+        GameState::from_fen("4k3/8/8/8/8/8/8/4K3 w - - 0 0"),
+        Err(FenError::InvalidFullmoveNumber)
+    ));
+}
+
+#[test]
+fn apply_move_reports_wrong_side_illegal_and_finished_branches() {
+    let start = GameState::starting_position();
+    assert_eq!(
+        start.apply_move(Move::new(square("e7"), square("e5"))),
+        Err(MoveError::WrongSideToMove)
+    );
+    assert_eq!(
+        start.apply_move(Move::new(square("e2"), square("e5"))),
+        Err(MoveError::IllegalMove)
+    );
+
+    let finished = GameState::from_fen("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1").expect("FEN should parse");
+    assert_eq!(
+        finished.apply_move(Move::new(square("h8"), square("h7"))),
+        Err(MoveError::GameAlreadyFinished)
     );
 }

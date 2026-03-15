@@ -227,10 +227,7 @@ fn update_claim_draw_banner(
         return;
     };
 
-    let show_button = match_session.claimed_draw_reason().is_none()
-        && !match_session.status().is_finished()
-        && match_session.claimable_draw().is_claimable();
-    *visibility = if show_button {
+    *visibility = if claim_draw_banner_visible(&match_session) {
         Visibility::Visible
     } else {
         Visibility::Hidden
@@ -243,11 +240,7 @@ fn update_claim_draw_banner(
         return;
     };
 
-    button_text.0 = if match_session.claimable_draw().threefold_repetition {
-        String::from("Claim Draw by Repetition")
-    } else {
-        String::from("Claim Draw by Fifty-Move Rule")
-    };
+    button_text.0 = String::from(claim_draw_banner_label(&match_session));
 }
 
 fn handle_claim_draw_button_actions(
@@ -265,6 +258,20 @@ fn side_label(side: Side) -> &'static str {
     match side {
         Side::White => "White",
         Side::Black => "Black",
+    }
+}
+
+fn claim_draw_banner_visible(match_session: &MatchSession) -> bool {
+    match_session.claimed_draw_reason().is_none()
+        && !match_session.status().is_finished()
+        && match_session.claimable_draw().is_claimable()
+}
+
+fn claim_draw_banner_label(match_session: &MatchSession) -> &'static str {
+    if match_session.claimable_draw().threefold_repetition {
+        "Claim Draw by Repetition"
+    } else {
+        "Claim Draw by Fifty-Move Rule"
     }
 }
 
@@ -315,5 +322,59 @@ fn match_status_label(match_session: &MatchSession) -> String {
         GameStatus::Finished(GameOutcome::Draw(DrawReason::Automatic(
             AutomaticDrawReason::SeventyFiveMoveRule,
         ))) => String::from("Draw by the seventy-five move rule."),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn side_and_status_labels_cover_result_and_claim_paths() {
+        assert_eq!(side_label(Side::White), "White");
+        assert_eq!(side_label(Side::Black), "Black");
+
+        let mut match_session = MatchSession::start_local_match();
+        assert_eq!(
+            match_status_label(&match_session),
+            "Select a piece to move."
+        );
+
+        match_session.selected_square =
+            Some(chess_core::Square::from_algebraic("e2").expect("fixture square should parse"));
+        assert_eq!(match_status_label(&match_session), "Selected e2.");
+
+        match_session.replace_game_state(
+            chess_core::GameState::from_fen("7k/6Q1/6K1/8/8/8/8/8 b - - 0 1")
+                .expect("fixture FEN should parse"),
+        );
+        assert_eq!(match_status_label(&match_session), "Checkmate. White wins.");
+
+        match_session.replace_game_state(
+            chess_core::GameState::from_fen("4k3/8/8/8/8/8/8/4K3 w - - 100 1")
+                .expect("fixture FEN should parse"),
+        );
+        assert!(match_session.claim_draw());
+        assert_eq!(
+            match_status_label(&match_session),
+            "Draw claimed by the fifty-move rule."
+        );
+    }
+
+    #[test]
+    fn draw_banner_visibility_and_copy_follow_claimable_state() {
+        let mut match_session = MatchSession::start_local_match();
+        assert!(!claim_draw_banner_visible(&match_session));
+
+        match_session.replace_game_state(
+            chess_core::GameState::from_fen("4k3/8/8/8/8/8/8/4K3 w - - 100 1")
+                .expect("fixture FEN should parse"),
+        );
+
+        assert!(claim_draw_banner_visible(&match_session));
+        assert_eq!(
+            claim_draw_banner_label(&match_session),
+            "Claim Draw by Fifty-Move Rule"
+        );
     }
 }

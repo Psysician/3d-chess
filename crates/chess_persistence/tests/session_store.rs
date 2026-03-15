@@ -214,3 +214,46 @@ fn list_and_load_manual_saves_ignore_tampered_on_disk_session_ids() {
     assert_eq!(loaded.metadata().session_id, "tampered-slot");
     assert_eq!(loaded.metadata().save_kind, SaveKind::Manual);
 }
+
+#[test]
+fn corrupt_settings_file_returns_serialization_error_instead_of_defaulting() {
+    let temp_dir = TempDir::new().expect("temp dir should be created");
+    let store = SessionStore::new(temp_dir.path());
+    fs::write(temp_dir.path().join("settings.json"), b"{not-json")
+        .expect("corrupt settings fixture should be written");
+
+    let error = store
+        .load_settings()
+        .expect_err("corrupt settings should stay visible to callers");
+    assert!(matches!(error, StoreError::Serialization(_)));
+}
+
+#[test]
+fn corrupt_recovery_file_surfaces_error_before_resume_logic_uses_it() {
+    let temp_dir = TempDir::new().expect("temp dir should be created");
+    let store = SessionStore::new(temp_dir.path());
+    fs::create_dir_all(temp_dir.path().join("recovery")).expect("recovery directory should exist");
+    fs::write(
+        temp_dir.path().join("recovery").join("current.json"),
+        b"{not-json",
+    )
+    .expect("corrupt recovery fixture should be written");
+
+    let error = store
+        .load_recovery()
+        .expect_err("corrupt recovery data should not be hidden");
+    assert!(matches!(error, StoreError::Serialization(_)));
+}
+
+#[test]
+fn clear_recovery_reports_io_failures_when_path_is_a_directory() {
+    let temp_dir = TempDir::new().expect("temp dir should be created");
+    let store = SessionStore::new(temp_dir.path());
+    fs::create_dir_all(temp_dir.path().join("recovery").join("current.json"))
+        .expect("directory-backed recovery fixture should exist");
+
+    let error = store
+        .clear_recovery()
+        .expect_err("directory-backed recovery path should fail to clear");
+    assert!(matches!(error, StoreError::Io(_)));
+}

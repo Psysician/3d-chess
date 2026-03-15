@@ -93,3 +93,55 @@ impl Display for MoveError {
 }
 
 impl std::error::Error for MoveError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Square;
+
+    #[test]
+    fn move_display_formats_basic_and_promotion_uci() {
+        let e2 = Square::from_algebraic("e2").expect("valid square");
+        let e4 = Square::from_algebraic("e4").expect("valid square");
+        let a7 = Square::from_algebraic("a7").expect("valid square");
+        let a8 = Square::from_algebraic("a8").expect("valid square");
+
+        let basic = Move::new(e2, e4);
+        assert_eq!(basic.from(), e2);
+        assert_eq!(basic.to(), e4);
+        assert_eq!(basic.promotion(), None);
+        assert_eq!(basic.to_string(), "e2e4");
+
+        let promotion = Move::with_promotion(a7, a8, PieceKind::Queen);
+        assert_eq!(promotion.promotion(), Some(PieceKind::Queen));
+        assert_eq!(promotion.to_string(), "a7a8q");
+        assert_eq!(
+            Move::with_promotion(a7, a8, PieceKind::Knight).to_string(),
+            "a7a8n"
+        );
+    }
+
+    #[test]
+    fn move_error_messages_stay_stable() {
+        assert_eq!(
+            MoveError::GameAlreadyFinished.to_string(),
+            "game is already finished"
+        );
+        assert_eq!(
+            MoveError::NoPieceAtSource.to_string(),
+            "no piece at source square"
+        );
+        assert_eq!(
+            MoveError::WrongSideToMove.to_string(),
+            "piece does not match side to move"
+        );
+        assert_eq!(
+            MoveError::MissingPromotionChoice.to_string(),
+            "promotion move requires a promotion piece"
+        );
+        assert_eq!(
+            MoveError::InvalidPromotionChoice.to_string(),
+            "promotion piece must be queen, rook, bishop, or knight"
+        );
+    }
+}

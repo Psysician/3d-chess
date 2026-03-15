@@ -251,12 +251,9 @@ impl SessionStore {
     }
 
     pub fn load_settings(&self) -> StoreResult<ShellSettings> {
-        let path = self.settings_file();
-        if !path.exists() {
-            return Ok(ShellSettings::default());
-        }
-
-        self.read_json(&path)
+        Ok(self
+            .read_optional_json::<ShellSettings>(&self.settings_file())?
+            .unwrap_or_default())
     }
 
     pub fn save_settings(&self, settings: &ShellSettings) -> StoreResult<()> {
@@ -315,6 +312,16 @@ impl SessionStore {
     fn read_json<T: DeserializeOwned>(&self, path: &Path) -> StoreResult<T> {
         let bytes = fs::read(path)?;
         Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    fn read_optional_json<T: DeserializeOwned>(&self, path: &Path) -> StoreResult<Option<T>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let bytes = fs::read(path)?;
+        let decoded = serde_json::from_slice(&bytes)?;
+        Ok(Some(decoded))
     }
 
     fn write_json_atomic<T: Serialize>(&self, path: &Path, value: &T) -> StoreResult<()> {

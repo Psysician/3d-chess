@@ -11,8 +11,14 @@ pub use match_state::{
 };
 pub use plugins::{
     AiMatchPlugin, AppShellPlugin, BoardScenePlugin, BoardSquareVisual, ChessAudioPlugin,
-    ConfirmationKind, MenuAction, MenuPanel, MenuPlugin, MoveFeedbackPlugin, PieceViewPlugin,
-    PieceVisual, RecoveryBannerState, SaveLoadPlugin, SaveLoadRequest, SaveLoadState,
-    SaveRootOverride, SessionStoreResource, ShellInputPlugin, ShellMenuState,
+    ConfirmationKind, MenuAction, MenuContext, MenuPanel, MenuPlugin, MoveFeedbackPlugin,
+    PieceViewPlugin, PieceVisual, RecoveryBannerState, SaveLoadPlugin, SaveLoadRequest,
+    SaveLoadState, SaveRootOverride, SessionStoreResource, ShellInputPlugin, ShellMenuState,
 };
 pub use style::ShellTheme;
+
+#[doc(hidden)]
+pub mod test_support {
+    pub use crate::plugins::app_shell_logic;
+    pub use crate::plugins::save_load_logic;
+}

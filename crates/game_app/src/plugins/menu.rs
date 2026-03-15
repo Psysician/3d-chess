@@ -153,3 +153,146 @@ fn apply_menu_actions(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::state::app::StatesPlugin;
+
+    fn menu_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(StatesPlugin)
+            .insert_resource(MatchLaunchIntent::default())
+            .init_state::<AppScreenState>()
+            .add_plugins(MenuPlugin);
+        app
+    }
+
+    #[test]
+    fn screen_sync_resets_menu_when_entering_main_menu() {
+        let mut app = menu_app();
+        app.world_mut()
+            .resource_mut::<NextState<AppScreenState>>()
+            .set(AppScreenState::MainMenu);
+        app.update();
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<ShellMenuState>(),
+            &ShellMenuState::default()
+        );
+    }
+
+    #[test]
+    fn actions_cover_panel_navigation_selection_and_confirmations() {
+        let mut app = menu_app();
+
+        app.world_mut().write_message(MenuAction::OpenSetup);
+        app.update();
+        assert_eq!(
+            app.world().resource::<ShellMenuState>().panel,
+            MenuPanel::Setup
+        );
+
+        app.world_mut().write_message(MenuAction::OpenLoadList);
+        app.update();
+        assert_eq!(
+            app.world().resource::<ShellMenuState>().panel,
+            MenuPanel::LoadList
+        );
+
+        app.world_mut().write_message(MenuAction::OpenSettings);
+        app.update();
+        assert_eq!(
+            app.world().resource::<ShellMenuState>().panel,
+            MenuPanel::Settings
+        );
+
+        app.world_mut().write_message(MenuAction::BackToSetup);
+        app.update();
+        assert_eq!(
+            app.world().resource::<ShellMenuState>().panel,
+            MenuPanel::Setup
+        );
+
+        app.world_mut()
+            .write_message(MenuAction::SelectSave(String::from("slot-a")));
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<ShellMenuState>()
+                .selected_save
+                .as_deref(),
+            Some("slot-a")
+        );
+        assert_eq!(
+            app.world()
+                .resource::<ShellMenuState>()
+                .status_line
+                .as_deref(),
+            Some("Selected save slot-a.")
+        );
+
+        app.world_mut()
+            .write_message(MenuAction::RequestConfirmation(
+                ConfirmationKind::DeleteSave,
+            ));
+        app.update();
+        assert_eq!(
+            app.world().resource::<ShellMenuState>().confirmation,
+            Some(ConfirmationKind::DeleteSave)
+        );
+
+        app.world_mut().write_message(MenuAction::CancelModal);
+        app.update();
+        assert_eq!(app.world().resource::<ShellMenuState>().confirmation, None);
+    }
+
+    #[test]
+    fn actions_cover_match_loading_pause_resume_and_return() {
+        let mut app = menu_app();
+
+        app.world_mut().write_message(MenuAction::StartNewMatch);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<MatchLaunchIntent>(),
+            MatchLaunchIntent::NewLocalMatch
+        );
+
+        app.world_mut()
+            .resource_mut::<NextState<AppScreenState>>()
+            .set(AppScreenState::InMatch);
+        app.update();
+        app.update();
+
+        app.world_mut().write_message(MenuAction::PauseMatch);
+        app.update();
+        assert_eq!(
+            app.world().resource::<ShellMenuState>().context,
+            MenuContext::InMatchOverlay
+        );
+
+        app.world_mut().write_message(MenuAction::ResumeMatch);
+        app.update();
+        assert_eq!(
+            app.world().resource::<ShellMenuState>().context,
+            MenuContext::MainMenu
+        );
+
+        app.world_mut().write_message(MenuAction::Rematch);
+        app.update();
+        assert_eq!(
+            *app.world().resource::<MatchLaunchIntent>(),
+            MatchLaunchIntent::Rematch
+        );
+
+        app.world_mut().write_message(MenuAction::ReturnToMenu);
+        app.update();
+        app.update();
+        assert_eq!(
+            *app.world().resource::<State<AppScreenState>>().get(),
+            AppScreenState::MainMenu
+        );
+    }
+}

@@ -99,3 +99,46 @@ impl<'de> Deserialize<'de> for Square {
         Square::from_algebraic(&value).ok_or_else(|| serde::de::Error::custom("invalid square"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn square_construction_offset_and_iteration_cover_edges() {
+        assert_eq!(Square::new(7, 7), Some(Square::from_coords_unchecked(7, 7)));
+        assert_eq!(Square::new(8, 0), None);
+
+        let e4 = Square::from_algebraic("e4").expect("valid square");
+        assert_eq!(e4.file(), 4);
+        assert_eq!(e4.rank(), 3);
+        assert_eq!(e4.offset(1, 1), Square::from_algebraic("f5"));
+        assert_eq!(e4.offset(-5, 0), None);
+
+        let all = Square::all().collect::<Vec<_>>();
+        assert_eq!(all.len(), 64);
+        assert_eq!(all.first().copied(), Square::from_algebraic("a1"));
+        assert_eq!(all.last().copied(), Square::from_algebraic("h8"));
+        assert_eq!(e4.to_algebraic(), "e4");
+        assert_eq!(e4.to_string(), "e4");
+    }
+
+    #[test]
+    fn square_serde_rejects_invalid_strings() {
+        let expected = match Square::from_algebraic("b7") {
+            Some(square) => square,
+            None => panic!("fixture square should be valid"),
+        };
+        let encoded = match serde_json::to_string(&expected) {
+            Ok(encoded) => encoded,
+            Err(error) => panic!("square should serialize: {error}"),
+        };
+        assert_eq!(encoded, "\"b7\"");
+        let decoded: Square = match serde_json::from_str(&encoded) {
+            Ok(decoded) => decoded,
+            Err(error) => panic!("square should deserialize: {error}"),
+        };
+        assert_eq!(decoded, expected);
+        assert!(serde_json::from_str::<Square>("\"z9\"").is_err());
+    }
+}

@@ -2,17 +2,16 @@
 //! Main menu, pause overlay, and results render from modal resources while match launch still funnels through MatchLoading. (ref: DL-001) (ref: DL-007)
 
 use bevy::prelude::*;
-use chess_core::{AutomaticDrawReason, DrawReason, GameOutcome, PieceKind, WinReason};
-use chess_persistence::{DisplayMode, RecoveryStartupPolicy, SavedSessionSummary};
+use chess_core::PieceKind;
+use chess_persistence::DisplayMode;
 
+use super::app_shell_logic;
 use super::menu::{
     ConfirmationKind, MenuAction, MenuContext, MenuPanel, RecoveryBannerState, ShellMenuState,
 };
 use super::save_load::{SaveLoadRequest, SaveLoadState};
 use crate::app::AppScreenState;
-use crate::match_state::{
-    ClaimedDrawReason, MatchLaunchIntent, MatchSession, PendingLoadedSnapshot,
-};
+use crate::match_state::{MatchLaunchIntent, MatchSession, PendingLoadedSnapshot};
 use crate::style::ShellTheme;
 
 pub struct AppShellPlugin;
@@ -309,7 +308,8 @@ fn spawn_setup_status(
     save_state: &SaveLoadState,
     recovery: &RecoveryBannerState,
 ) {
-    if let Some(status) = effective_shell_status(menu_state, save_state, recovery) {
+    if let Some(status) = app_shell_logic::effective_shell_status(menu_state, save_state, recovery)
+    {
         panel.spawn((
             Text::new(status),
             TextFont {
@@ -467,7 +467,7 @@ fn spawn_settings_actions(
     panel.spawn((
         Text::new(format!(
             "Startup recovery: {}",
-            recovery_policy_label(save_state.settings.recovery_policy)
+            app_shell_logic::recovery_policy_label(save_state.settings.recovery_policy)
         )),
         TextFont {
             font_size: 15.0,
@@ -485,7 +485,7 @@ fn spawn_settings_actions(
     panel.spawn((
         Text::new(format!(
             "Display mode: {}",
-            display_mode_label(save_state.settings.display_mode)
+            app_shell_logic::display_mode_label(save_state.settings.display_mode)
         )),
         TextFont {
             font_size: 15.0,
@@ -502,7 +502,7 @@ fn spawn_settings_actions(
     );
     spawn_action_button(
         panel,
-        &toggle_label(
+        &app_shell_logic::toggle_label(
             "Confirm menu abandon",
             save_state.settings.confirm_actions.abandon_match,
         ),
@@ -512,7 +512,7 @@ fn spawn_settings_actions(
     );
     spawn_action_button(
         panel,
-        &toggle_label(
+        &app_shell_logic::toggle_label(
             "Confirm save delete",
             save_state.settings.confirm_actions.delete_save,
         ),
@@ -522,7 +522,7 @@ fn spawn_settings_actions(
     );
     spawn_action_button(
         panel,
-        &toggle_label(
+        &app_shell_logic::toggle_label(
             "Confirm save overwrite",
             save_state.settings.confirm_actions.overwrite_save,
         ),
@@ -542,7 +542,7 @@ fn spawn_confirmation_actions(
         return;
     };
 
-    let (headline, detail) = confirmation_copy(kind);
+    let (headline, detail) = app_shell_logic::confirmation_copy(kind);
     panel.spawn((
         Text::new(headline),
         TextFont {
@@ -669,8 +669,14 @@ fn spawn_match_result_ui(
     match_session: Res<MatchSession>,
     theme: Res<ShellTheme>,
 ) {
-    let result_title = match_session_result_title(match_session.as_ref());
-    let result_detail = match_session_result_detail(match_session.as_ref());
+    let result_title = app_shell_logic::match_session_result_title(
+        match_session.status(),
+        match_session.claimed_draw_reason(),
+    );
+    let result_detail = app_shell_logic::match_session_result_detail(
+        match_session.status(),
+        match_session.claimed_draw_reason(),
+    );
 
     commands
         .spawn((
@@ -940,7 +946,8 @@ fn request_return_to_menu(
     menu_actions: &mut MessageWriter<MenuAction>,
     save_requests: &mut MessageWriter<SaveLoadRequest>,
 ) {
-    let abandoning_live_match = return_to_menu_abandons_active_match(state, menu_state);
+    let abandoning_live_match =
+        app_shell_logic::return_to_menu_abandons_active_match(state, menu_state);
     if abandoning_live_match && save_state.settings.confirm_actions.abandon_match {
         menu_actions.write(MenuAction::RequestConfirmation(
             ConfirmationKind::AbandonMatch,
@@ -963,12 +970,12 @@ fn handle_save_slot_action(
     match action {
         ShellAction::SaveManual => {
             save_requests.write(SaveLoadRequest::SaveManual {
-                label: derive_save_label(match_session),
+                label: app_shell_logic::derive_save_label(match_session.last_move),
                 slot_id: None,
             });
         }
         ShellAction::OverwriteSelectedSave => {
-            if let Some(selected) = selected_save_summary(menu_state, save_state) {
+            if let Some(selected) = app_shell_logic::selected_save_summary(menu_state, save_state) {
                 if save_state.settings.confirm_actions.overwrite_save {
                     menu_actions.write(MenuAction::RequestConfirmation(
                         ConfirmationKind::OverwriteSave,
@@ -1012,7 +1019,7 @@ fn handle_settings_action(
     match action {
         ShellAction::CycleRecoveryPolicy => {
             save_state.settings.recovery_policy =
-                next_recovery_policy(save_state.settings.recovery_policy);
+                app_shell_logic::next_recovery_policy(save_state.settings.recovery_policy);
             save_requests.write(SaveLoadRequest::PersistSettings);
         }
         ShellAction::ToggleDisplayMode => {
@@ -1065,7 +1072,9 @@ fn handle_confirmation_action(
                 menu_actions.write(MenuAction::CancelModal);
             }
             ConfirmationKind::OverwriteSave => {
-                if let Some(selected) = selected_save_summary(menu_state, save_state) {
+                if let Some(selected) =
+                    app_shell_logic::selected_save_summary(menu_state, save_state)
+                {
                     save_requests.write(SaveLoadRequest::SaveManual {
                         label: selected.label.clone(),
                         slot_id: Some(selected.slot_id.clone()),
@@ -1086,13 +1095,6 @@ fn handle_promotion_action(piece_kind: PieceKind, match_session: &mut MatchSessi
             piece_kind,
         ));
     }
-}
-
-fn return_to_menu_abandons_active_match(
-    state: AppScreenState,
-    menu_state: &ShellMenuState,
-) -> bool {
-    state == AppScreenState::InMatch && menu_state.context == MenuContext::InMatchOverlay
 }
 
 fn advance_to_match_result(
@@ -1164,153 +1166,20 @@ fn spawn_action_button(
         });
 }
 
-/// Chooses the most actionable shell status line so save/load feedback and recovery availability share one predictable surface. (ref: DL-003)
-fn effective_shell_status(
-    menu_state: &ShellMenuState,
-    save_state: &SaveLoadState,
-    recovery: &RecoveryBannerState,
-) -> Option<String> {
-    save_state
-        .last_error
-        .clone()
-        .or_else(|| save_state.last_message.clone())
-        .or_else(|| menu_state.status_line.clone())
-        .or_else(|| {
-            if recovery.available {
-                recovery
-                    .label
-                    .as_ref()
-                    .map(|label| format!("Interrupted-session recovery is available as {label}."))
-            } else {
-                None
-            }
-        })
-}
-
-fn derive_save_label(match_session: &MatchSession) -> String {
-    if let Some(last_move) = match_session.last_move {
-        format!("Local Match after {last_move}")
-    } else {
-        String::from("Local Match Save")
-    }
-}
-
-fn selected_save_summary<'a>(
-    menu_state: &ShellMenuState,
-    save_state: &'a SaveLoadState,
-) -> Option<&'a SavedSessionSummary> {
-    let slot_id = menu_state.selected_save.as_deref()?;
-    save_state
-        .manual_saves
-        .iter()
-        .find(|summary| summary.slot_id == slot_id)
-}
-
-fn next_recovery_policy(current: RecoveryStartupPolicy) -> RecoveryStartupPolicy {
-    match current {
-        RecoveryStartupPolicy::Resume => RecoveryStartupPolicy::Ask,
-        RecoveryStartupPolicy::Ask => RecoveryStartupPolicy::Ignore,
-        RecoveryStartupPolicy::Ignore => RecoveryStartupPolicy::Resume,
-    }
-}
-
-fn recovery_policy_label(policy: RecoveryStartupPolicy) -> &'static str {
-    match policy {
-        RecoveryStartupPolicy::Resume => "Resume automatically",
-        RecoveryStartupPolicy::Ask => "Ask on startup",
-        RecoveryStartupPolicy::Ignore => "Ignore recovery on startup",
-    }
-}
-
-fn display_mode_label(mode: DisplayMode) -> &'static str {
-    match mode {
-        DisplayMode::Windowed => "Windowed",
-        DisplayMode::Fullscreen => "Fullscreen",
-    }
-}
-
-fn toggle_label(label: &str, enabled: bool) -> String {
-    if enabled {
-        format!("{label}: on")
-    } else {
-        format!("{label}: off")
-    }
-}
-
-/// Supplies confirmation copy for the destructive-confirmation slice of the shipped shell settings contract. (ref: DL-005)
-fn confirmation_copy(kind: ConfirmationKind) -> (&'static str, &'static str) {
-    match kind {
-        ConfirmationKind::AbandonMatch => (
-            "Leave the current match?",
-            "Clearing the recovery slot prevents startup resume from restoring this position.",
-        ),
-        ConfirmationKind::DeleteSave => (
-            "Delete the selected save?",
-            "Manual save history is user-controlled so deletes stay explicit.",
-        ),
-        ConfirmationKind::OverwriteSave => (
-            "Overwrite the selected save?",
-            "Manual saves stay distinct from recovery, so overwrites should always be deliberate.",
-        ),
-    }
-}
-
-fn match_session_result_title(match_session: &MatchSession) -> String {
-    if let Some(claimed_draw_reason) = match_session.claimed_draw_reason() {
-        return match claimed_draw_reason {
-            ClaimedDrawReason::ThreefoldRepetition => String::from("Draw Claimed by Repetition"),
-            ClaimedDrawReason::FiftyMoveRule => String::from("Draw Claimed by Fifty-Move Rule"),
-        };
-    }
-
-    match match_session.status() {
-        chess_core::GameStatus::Ongoing { .. } => String::from("Match Complete"),
-        chess_core::GameStatus::Finished(GameOutcome::Win {
-            winner,
-            reason: WinReason::Checkmate,
-        }) => match winner {
-            chess_core::Side::White => String::from("White Wins"),
-            chess_core::Side::Black => String::from("Black Wins"),
-        },
-        chess_core::GameStatus::Finished(GameOutcome::Draw(_)) => String::from("Draw"),
-    }
-}
-
-fn match_session_result_detail(match_session: &MatchSession) -> String {
-    if let Some(claimed_draw_reason) = match_session.claimed_draw_reason() {
-        return match claimed_draw_reason {
-            ClaimedDrawReason::ThreefoldRepetition => {
-                String::from("Threefold repetition was claimed from the in-match HUD.")
-            }
-            ClaimedDrawReason::FiftyMoveRule => {
-                String::from("The fifty-move rule was claimed from the in-match HUD.")
-            }
-        };
-    }
-
-    match match_session.status() {
-        chess_core::GameStatus::Ongoing { .. } => {
-            String::from("The shell routes to results only after chess_core resolves the outcome.")
-        }
-        chess_core::GameStatus::Finished(GameOutcome::Win {
-            reason: WinReason::Checkmate,
-            ..
-        }) => String::from("Checkmate detected by chess_core."),
-        chess_core::GameStatus::Finished(GameOutcome::Draw(DrawReason::Stalemate)) => {
-            String::from("Stalemate detected by chess_core.")
-        }
-        chess_core::GameStatus::Finished(GameOutcome::Draw(DrawReason::Automatic(
-            AutomaticDrawReason::FivefoldRepetition,
-        ))) => String::from("Fivefold repetition detected by chess_core."),
-        chess_core::GameStatus::Finished(GameOutcome::Draw(DrawReason::Automatic(
-            AutomaticDrawReason::SeventyFiveMoveRule,
-        ))) => String::from("Seventy-five move rule detected by chess_core."),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::message::Messages;
+    use bevy::ecs::system::SystemState;
+    use chess_core::{GameState, Move, Square};
+    use chess_persistence::{
+        ConfirmActionSettings, DisplayMode, RecoveryStartupPolicy, SaveKind, SavedSessionSummary,
+        ShellSettings,
+    };
+
+    fn drain_messages<T: Message>(world: &mut World) -> Vec<T> {
+        world.resource_mut::<Messages<T>>().drain().collect()
+    }
 
     #[test]
     fn return_to_menu_from_main_menu_setup_preserves_recovery_state() {
@@ -1320,7 +1189,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(!return_to_menu_abandons_active_match(
+        assert!(!app_shell_logic::return_to_menu_abandons_active_match(
             AppScreenState::MainMenu,
             &menu_state,
         ));
@@ -1334,7 +1203,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(return_to_menu_abandons_active_match(
+        assert!(app_shell_logic::return_to_menu_abandons_active_match(
             AppScreenState::InMatch,
             &menu_state,
         ));
@@ -1349,12 +1218,315 @@ mod tests {
         };
 
         assert_eq!(
-            effective_shell_status(
+            app_shell_logic::effective_shell_status(
                 &ShellMenuState::default(),
                 &SaveLoadState::default(),
                 &recovery,
             ),
             None
         );
+    }
+
+    #[test]
+    fn navigation_actions_dispatch_menu_and_save_messages() {
+        type WriterState<'w, 's> = SystemState<(
+            MessageWriter<'w, MenuAction>,
+            MessageWriter<'w, SaveLoadRequest>,
+        )>;
+
+        let mut world = World::new();
+        world.init_resource::<Messages<MenuAction>>();
+        world.init_resource::<Messages<SaveLoadRequest>>();
+        let mut writers: WriterState<'_, '_> = SystemState::new(&mut world);
+
+        let menu_state = ShellMenuState {
+            context: MenuContext::InMatchOverlay,
+            ..Default::default()
+        };
+        let save_state = SaveLoadState {
+            settings: ShellSettings {
+                recovery_policy: RecoveryStartupPolicy::Ask,
+                confirm_actions: ConfirmActionSettings {
+                    overwrite_save: true,
+                    delete_save: true,
+                    abandon_match: true,
+                },
+                display_mode: DisplayMode::Windowed,
+            },
+            ..Default::default()
+        };
+
+        {
+            let (mut menu_actions, mut save_requests) = writers.get_mut(&mut world);
+            handle_navigation_action(
+                &ShellAction::OpenSetup,
+                AppScreenState::MainMenu,
+                &menu_state,
+                &save_state,
+                &mut menu_actions,
+                &mut save_requests,
+            );
+            handle_navigation_action(
+                &ShellAction::ResumeRecovery,
+                AppScreenState::MainMenu,
+                &menu_state,
+                &save_state,
+                &mut menu_actions,
+                &mut save_requests,
+            );
+            handle_navigation_action(
+                &ShellAction::ReturnToMenu,
+                AppScreenState::InMatch,
+                &menu_state,
+                &save_state,
+                &mut menu_actions,
+                &mut save_requests,
+            );
+        }
+
+        let menu_messages = drain_messages::<MenuAction>(&mut world);
+        let save_messages = drain_messages::<SaveLoadRequest>(&mut world);
+        assert!(menu_messages.contains(&MenuAction::OpenSetup));
+        assert!(menu_messages.contains(&MenuAction::RequestConfirmation(
+            ConfirmationKind::AbandonMatch
+        )));
+        assert!(save_messages.contains(&SaveLoadRequest::ResumeRecovery));
+    }
+
+    #[test]
+    fn save_slot_and_confirmation_actions_dispatch_expected_requests() {
+        type WriterState<'w, 's> = SystemState<(
+            MessageWriter<'w, MenuAction>,
+            MessageWriter<'w, SaveLoadRequest>,
+        )>;
+
+        let mut world = World::new();
+        world.init_resource::<Messages<MenuAction>>();
+        world.init_resource::<Messages<SaveLoadRequest>>();
+        let mut writers: WriterState<'_, '_> = SystemState::new(&mut world);
+
+        let menu_state = ShellMenuState {
+            selected_save: Some(String::from("slot-a")),
+            ..Default::default()
+        };
+        let save_state = SaveLoadState {
+            manual_saves: vec![SavedSessionSummary {
+                slot_id: String::from("slot-a"),
+                label: String::from("Slot A"),
+                created_at_utc: None,
+                save_kind: SaveKind::Manual,
+            }],
+            settings: ShellSettings {
+                recovery_policy: RecoveryStartupPolicy::Ask,
+                confirm_actions: ConfirmActionSettings {
+                    overwrite_save: true,
+                    delete_save: false,
+                    abandon_match: true,
+                },
+                display_mode: DisplayMode::Windowed,
+            },
+            ..Default::default()
+        };
+        let match_session = MatchSession::start_local_match();
+
+        {
+            let (mut menu_actions, mut save_requests) = writers.get_mut(&mut world);
+            handle_save_slot_action(
+                &ShellAction::SaveManual,
+                &menu_state,
+                &save_state,
+                &mut menu_actions,
+                &mut save_requests,
+                &match_session,
+            );
+            handle_save_slot_action(
+                &ShellAction::OverwriteSelectedSave,
+                &menu_state,
+                &save_state,
+                &mut menu_actions,
+                &mut save_requests,
+                &match_session,
+            );
+            handle_save_slot_action(
+                &ShellAction::DeleteSelected,
+                &menu_state,
+                &save_state,
+                &mut menu_actions,
+                &mut save_requests,
+                &match_session,
+            );
+            handle_save_slot_action(
+                &ShellAction::LoadSelected,
+                &menu_state,
+                &save_state,
+                &mut menu_actions,
+                &mut save_requests,
+                &match_session,
+            );
+            handle_confirmation_action(
+                &ShellAction::Confirm(ConfirmationKind::DeleteSave),
+                &menu_state,
+                &save_state,
+                &mut menu_actions,
+                &mut save_requests,
+            );
+        }
+
+        let menu_messages = drain_messages::<MenuAction>(&mut world);
+        let save_messages = drain_messages::<SaveLoadRequest>(&mut world);
+        assert!(menu_messages.contains(&MenuAction::RequestConfirmation(
+            ConfirmationKind::OverwriteSave
+        )));
+        assert!(menu_messages.contains(&MenuAction::CancelModal));
+        assert!(save_messages.contains(&SaveLoadRequest::LoadManual {
+            slot_id: String::from("slot-a")
+        }));
+        assert!(save_messages.contains(&SaveLoadRequest::DeleteManual {
+            slot_id: String::from("slot-a")
+        }));
+        assert!(save_messages.contains(&SaveLoadRequest::SaveManual {
+            label: String::from("Local Match Save"),
+            slot_id: None
+        }));
+    }
+
+    #[test]
+    fn settings_actions_and_launch_resolution_cover_remaining_shell_branches() {
+        type SaveWriterState<'w, 's> = SystemState<(MessageWriter<'w, SaveLoadRequest>,)>;
+
+        let mut world = World::new();
+        world.init_resource::<Messages<SaveLoadRequest>>();
+        let mut writers: SaveWriterState<'_, '_> = SystemState::new(&mut world);
+
+        let mut save_state = SaveLoadState {
+            settings: ShellSettings {
+                recovery_policy: RecoveryStartupPolicy::Ask,
+                confirm_actions: ConfirmActionSettings::default(),
+                display_mode: DisplayMode::Windowed,
+            },
+            ..Default::default()
+        };
+        {
+            let (mut save_requests,) = writers.get_mut(&mut world);
+            handle_settings_action(
+                &ShellAction::CycleRecoveryPolicy,
+                &mut save_state,
+                &mut save_requests,
+            );
+            handle_settings_action(
+                &ShellAction::ToggleDisplayMode,
+                &mut save_state,
+                &mut save_requests,
+            );
+            handle_settings_action(
+                &ShellAction::ToggleConfirmation(ConfirmationKind::DeleteSave),
+                &mut save_state,
+                &mut save_requests,
+            );
+        }
+        let save_messages = drain_messages::<SaveLoadRequest>(&mut world);
+        assert_eq!(
+            save_state.settings.recovery_policy,
+            RecoveryStartupPolicy::Ignore
+        );
+        assert_eq!(save_state.settings.display_mode, DisplayMode::Fullscreen);
+        assert!(!save_state.settings.confirm_actions.delete_save);
+        assert_eq!(save_messages.len(), 3);
+
+        type LaunchState<'w, 's> = SystemState<(
+            ResMut<'w, MatchSession>,
+            ResMut<'w, MatchLaunchIntent>,
+            ResMut<'w, PendingLoadedSnapshot>,
+            ResMut<'w, ShellMenuState>,
+            ResMut<'w, NextState<AppScreenState>>,
+        )>;
+
+        let mut world = World::new();
+        world.insert_resource(MatchSession::start_local_match());
+        world.insert_resource(MatchLaunchIntent::LoadManual);
+        world.insert_resource(PendingLoadedSnapshot(None));
+        world.insert_resource(ShellMenuState::default());
+        world.insert_resource(NextState::<AppScreenState>::default());
+        let mut launch_state: LaunchState<'_, '_> = SystemState::new(&mut world);
+        {
+            let (match_session, launch_intent, pending_snapshot, menu_state, next_state) =
+                launch_state.get_mut(&mut world);
+            resolve_match_launch_intent(
+                match_session,
+                launch_intent,
+                pending_snapshot,
+                menu_state,
+                next_state,
+            );
+        }
+        assert_eq!(
+            world.resource::<ShellMenuState>().status_line.as_deref(),
+            Some("No saved session was ready to load.")
+        );
+
+        let snapshot =
+            MatchSession::start_local_match().to_snapshot(chess_persistence::SnapshotMetadata {
+                label: String::from("Loaded"),
+                created_at_utc: None,
+                updated_at_utc: None,
+                notes: None,
+                save_kind: SaveKind::Manual,
+                session_id: String::from("slot-a"),
+                recovery_key: None,
+            });
+        let mut world = World::new();
+        world.insert_resource(MatchSession::start_local_match());
+        world.insert_resource(MatchLaunchIntent::LoadManual);
+        world.insert_resource(PendingLoadedSnapshot(Some(snapshot)));
+        world.insert_resource(ShellMenuState {
+            panel: MenuPanel::LoadList,
+            context: MenuContext::InMatchOverlay,
+            confirmation: Some(ConfirmationKind::DeleteSave),
+            ..Default::default()
+        });
+        world.insert_resource(NextState::<AppScreenState>::default());
+        let mut launch_state: LaunchState<'_, '_> = SystemState::new(&mut world);
+        {
+            let (match_session, launch_intent, pending_snapshot, menu_state, next_state) =
+                launch_state.get_mut(&mut world);
+            resolve_match_launch_intent(
+                match_session,
+                launch_intent,
+                pending_snapshot,
+                menu_state,
+                next_state,
+            );
+        }
+        assert_eq!(
+            world.resource::<MatchLaunchIntent>(),
+            &MatchLaunchIntent::NewLocalMatch
+        );
+        assert_eq!(world.resource::<ShellMenuState>().panel, MenuPanel::Setup);
+        assert_eq!(
+            world.resource::<ShellMenuState>().context,
+            MenuContext::MainMenu
+        );
+        assert_eq!(world.resource::<ShellMenuState>().confirmation, None);
+    }
+
+    #[test]
+    fn promotion_action_applies_pending_move() {
+        let mut match_session = MatchSession::start_local_match();
+        let promotion_ready = match GameState::from_fen("7k/P7/8/8/8/8/8/4K3 w - - 0 1") {
+            Ok(game_state) => game_state,
+            Err(error) => panic!("promotion fixture FEN should parse: {error}"),
+        };
+        let from = match Square::from_algebraic("a7") {
+            Some(square) => square,
+            None => panic!("promotion fixture source square should parse"),
+        };
+        let to = match Square::from_algebraic("a8") {
+            Some(square) => square,
+            None => panic!("promotion fixture destination square should parse"),
+        };
+        match_session.replace_game_state(promotion_ready);
+        match_session.pending_promotion_move = Some(Move::new(from, to));
+        handle_promotion_action(PieceKind::Queen, &mut match_session);
+        assert_eq!(match_session.pending_promotion_move, None);
     }
 }

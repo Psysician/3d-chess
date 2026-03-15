@@ -3,6 +3,7 @@ use crate::{EngineController, EngineError, EngineRequest, EngineResponse};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MockEngineController {
     scripted_move: String,
+    scripted_error: Option<String>,
     healthy: bool,
 }
 
@@ -11,8 +12,21 @@ impl MockEngineController {
     pub fn new(scripted_move: impl Into<String>) -> Self {
         Self {
             scripted_move: scripted_move.into(),
+            scripted_error: None,
             healthy: true,
         }
+    }
+
+    #[must_use]
+    pub fn with_health(mut self, healthy: bool) -> Self {
+        self.healthy = healthy;
+        self
+    }
+
+    #[must_use]
+    pub fn with_failure(mut self, message: impl Into<String>) -> Self {
+        self.scripted_error = Some(message.into());
+        self
     }
 }
 
@@ -32,16 +46,20 @@ impl EngineController for MockEngineController {
     }
 
     fn evaluate(&mut self, request: &EngineRequest) -> Result<EngineResponse, EngineError> {
-        if request.position_notation.trim().is_empty() {
-            return Err(EngineError::new("position_notation must not be empty"));
+        request.validate()?;
+        if !self.healthy {
+            return Err(EngineError::new("mock engine is unhealthy"));
+        }
+        if let Some(message) = self.scripted_error.as_ref() {
+            return Err(EngineError::new(message.clone()));
         }
 
-        Ok(EngineResponse {
-            bestmove_uci: Some(self.scripted_move.clone()),
-            info: format!(
+        Ok(EngineResponse::bestmove(
+            self.scripted_move.clone(),
+            format!(
                 "mock evaluation for '{}' at {} ms",
                 request.position_notation, request.movetime_millis
             ),
-        })
+        ))
     }
 }
