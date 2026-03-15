@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::window::{PresentMode, Window, WindowPlugin, WindowResolution};
 
+use crate::match_state::MatchSession;
 use crate::plugins::{
     AiMatchPlugin, AppShellPlugin, BoardScenePlugin, ChessAudioPlugin, MenuPlugin,
     MoveFeedbackPlugin, PieceViewPlugin, SaveLoadPlugin, ShellInputPlugin,
@@ -39,6 +40,7 @@ pub fn build_app() -> App {
             ..default()
         }))
         .init_state::<AppScreenState>()
+        .insert_resource(MatchSession::start_local_match())
         .add_plugins((
             AppShellPlugin,
             BoardScenePlugin,

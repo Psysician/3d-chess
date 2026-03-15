@@ -23,15 +23,16 @@ pub struct GameSnapshot {
 
 impl GameSnapshot {
     #[must_use]
-    pub fn placeholder(game_state: GameState) -> Self {
+    pub fn new(game_state: GameState, metadata: SnapshotMetadata) -> Self {
         Self {
             version: SaveFormatVersion::V1,
             game_state,
-            metadata: SnapshotMetadata {
-                label: String::from("m0-placeholder"),
-                created_at_utc: None,
-                notes: Some(String::from("Versioned save boundary reserved during M0.")),
-            },
+            metadata,
         }
+    }
+
+    #[must_use]
+    pub fn restore_game_state(&self) -> GameState {
+        self.game_state.clone()
     }
 }

@@ -1,111 +1,102 @@
 use bevy::prelude::*;
-use chess_core::{PieceKind, Side};
+use chess_core::{Piece, PieceKind, Square};
 
 use crate::app::AppScreenState;
+use crate::board_coords::square_to_board_translation;
+use crate::match_state::MatchSession;
 use crate::style::ShellTheme;
 
 pub struct PieceViewPlugin;
 
 impl Plugin for PieceViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppScreenState::MainMenu), spawn_piece_silhouettes);
+        app.init_resource::<PieceVisualAssets>()
+            .add_systems(OnEnter(AppScreenState::MainMenu), ensure_piece_view_root)
+            .add_systems(Update, sync_piece_silhouettes_from_match);
     }
 }
 
 #[derive(Component)]
 struct PieceViewRoot;
 
-fn spawn_piece_silhouettes(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    theme: Res<ShellTheme>,
-) {
-    let white_material = materials.add(StandardMaterial {
-        base_color: theme.piece_white,
-        metallic: 0.16,
-        perceptual_roughness: 0.36,
-        reflectance: 0.48,
-        ..default()
-    });
-    let black_material = materials.add(StandardMaterial {
-        base_color: theme.piece_black,
-        metallic: 0.22,
-        perceptual_roughness: 0.32,
-        reflectance: 0.34,
-        ..default()
-    });
-
-    commands
-        .spawn((Transform::default(), PieceViewRoot))
-        .with_children(|parent| {
-            for (side, home_rank, pawn_rank) in
-                [(Side::White, 0_u8, 1_u8), (Side::Black, 7_u8, 6_u8)]
-            {
-                for file in 0_u8..8 {
-                    let kind = back_rank_piece(file);
-                    let back_rank_height = piece_height(kind);
-                    let pawn_height = piece_height(PieceKind::Pawn);
-
-                    parent.spawn(piece_bundle(
-                        &mut meshes,
-                        if side == Side::White {
-                            white_material.clone()
-                        } else {
-                            black_material.clone()
-                        },
-                        file,
-                        home_rank,
-                        back_rank_height,
-                        theme.square_size,
-                        theme.board_height,
-                    ));
-                    parent.spawn(piece_bundle(
-                        &mut meshes,
-                        if side == Side::White {
-                            white_material.clone()
-                        } else {
-                            black_material.clone()
-                        },
-                        file,
-                        pawn_rank,
-                        pawn_height,
-                        theme.square_size,
-                        theme.board_height,
-                    ));
-                }
-            }
-        });
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PieceVisual {
+    pub square: Square,
+    pub piece: Piece,
 }
 
-fn piece_bundle(
-    meshes: &mut Assets<Mesh>,
-    material: Handle<StandardMaterial>,
-    file: u8,
-    rank: u8,
-    height: f32,
-    square_size: f32,
-    board_height: f32,
-) -> impl Bundle {
-    (
-        Mesh3d(meshes.add(Cuboid::new(square_size * 0.52, height, square_size * 0.52))),
-        MeshMaterial3d(material),
-        Transform::from_xyz(
-            board_axis(file, square_size),
-            board_height * 0.5 + height * 0.5,
-            board_axis(rank, square_size),
-        ),
-    )
+#[derive(Resource)]
+struct PieceVisualAssets {
+    white_material: Handle<StandardMaterial>,
+    black_material: Handle<StandardMaterial>,
+    king_mesh: Handle<Mesh>,
+    queen_mesh: Handle<Mesh>,
+    rook_mesh: Handle<Mesh>,
+    bishop_mesh: Handle<Mesh>,
+    knight_mesh: Handle<Mesh>,
+    pawn_mesh: Handle<Mesh>,
 }
 
-fn back_rank_piece(file: u8) -> PieceKind {
-    match file {
-        0 | 7 => PieceKind::Rook,
-        1 | 6 => PieceKind::Knight,
-        2 | 5 => PieceKind::Bishop,
-        3 => PieceKind::Queen,
-        4 => PieceKind::King,
-        _ => PieceKind::Pawn,
+impl FromWorld for PieceVisualAssets {
+    fn from_world(world: &mut World) -> Self {
+        let (piece_white, piece_black, footprint) = {
+            let theme = world.resource::<ShellTheme>();
+            (
+                theme.piece_white,
+                theme.piece_black,
+                theme.square_size * 0.52,
+            )
+        };
+
+        let (
+            king_mesh,
+            queen_mesh,
+            rook_mesh,
+            bishop_mesh,
+            knight_mesh,
+            pawn_mesh,
+        ) = {
+            let mut meshes = world.resource_mut::<Assets<Mesh>>();
+            (
+                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::King), footprint)),
+                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::Queen), footprint)),
+                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::Rook), footprint)),
+                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::Bishop), footprint)),
+                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::Knight), footprint)),
+                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::Pawn), footprint)),
+            )
+        };
+
+        let (white_material, black_material) = {
+            let mut materials = world.resource_mut::<Assets<StandardMaterial>>();
+            (
+                materials.add(StandardMaterial {
+                    base_color: piece_white,
+                    metallic: 0.16,
+                    perceptual_roughness: 0.36,
+                    reflectance: 0.48,
+                    ..default()
+                }),
+                materials.add(StandardMaterial {
+                    base_color: piece_black,
+                    metallic: 0.22,
+                    perceptual_roughness: 0.32,
+                    reflectance: 0.34,
+                    ..default()
+                }),
+            )
+        };
+
+        Self {
+            white_material,
+            black_material,
+            king_mesh,
+            queen_mesh,
+            rook_mesh,
+            bishop_mesh,
+            knight_mesh,
+            pawn_mesh,
+        }
     }
 }
 
@@ -120,6 +111,68 @@ fn piece_height(kind: PieceKind) -> f32 {
     }
 }
 
-fn board_axis(index: u8, square_size: f32) -> f32 {
-    (f32::from(index) - 3.5) * square_size
+fn ensure_piece_view_root(
+    mut commands: Commands,
+    existing_root: Query<Entity, With<PieceViewRoot>>,
+) {
+    if existing_root.is_empty() {
+        commands.spawn((Transform::default(), PieceViewRoot));
+    }
+}
+
+fn sync_piece_silhouettes_from_match(
+    mut commands: Commands,
+    match_session: Res<MatchSession>,
+    theme: Res<ShellTheme>,
+    piece_assets: Res<PieceVisualAssets>,
+    root_query: Query<Entity, With<PieceViewRoot>>,
+    piece_query: Query<Entity, With<PieceVisual>>,
+) {
+    let Ok(root_entity) = root_query.single() else {
+        return;
+    };
+
+    if !match_session.is_changed() && !piece_query.is_empty() {
+        return;
+    }
+
+    // M2 replaces the shell-only starting layout with GameState-driven piece sync so the visual board cannot drift from chess_core.
+    for entity in &piece_query {
+        commands.entity(entity).despawn();
+    }
+
+    let board_state = match_session.game_state().board();
+    commands.entity(root_entity).with_children(|parent| {
+        for (square, piece) in board_state.iter() {
+            let piece_translation =
+                square_to_board_translation(*square, theme.square_size, theme.board_height)
+                    + Vec3::Y * (piece_height(piece.kind) * 0.5);
+            let material = if piece.side == chess_core::Side::White {
+                piece_assets.white_material.clone()
+            } else {
+                piece_assets.black_material.clone()
+            };
+
+            parent.spawn((
+                PieceVisual {
+                    square: *square,
+                    piece: *piece,
+                },
+                Mesh3d(piece_mesh(&piece_assets, piece.kind)),
+                MeshMaterial3d(material),
+                Transform::from_translation(piece_translation),
+            ));
+        }
+    });
+}
+
+fn piece_mesh(piece_assets: &PieceVisualAssets, kind: PieceKind) -> Handle<Mesh> {
+    match kind {
+        PieceKind::King => piece_assets.king_mesh.clone(),
+        PieceKind::Queen => piece_assets.queen_mesh.clone(),
+        PieceKind::Rook => piece_assets.rook_mesh.clone(),
+        PieceKind::Bishop => piece_assets.bishop_mesh.clone(),
+        PieceKind::Knight => piece_assets.knight_mesh.clone(),
+        PieceKind::Pawn => piece_assets.pawn_mesh.clone(),
+    }
 }
