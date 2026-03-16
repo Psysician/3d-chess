@@ -6,7 +6,7 @@ Use this as the execution checklist for the long Ralph run.
 
 - [x] Run `cargo fmt --all --check`
 - [x] Run `cargo clippy --workspace --all-targets -- -D warnings`
-- [ ] Run `cargo test --workspace`
+- [x] Run `cargo test --workspace`
 - [ ] Run `bash tools/ci/coverage-workspace.sh "$PWD" /tmp/3d-chess-coverage-baseline`
 - [ ] Record the starting summary from `/tmp/3d-chess-coverage-baseline/summary.txt`
 - [ ] Inspect `.github/workflows/ci.yml`, `tools/ci/coverage-workspace.sh`, and `tools/ci/parse_coverage.py` before changing coverage strategy
