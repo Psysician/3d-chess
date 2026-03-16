@@ -1,3 +1,4 @@
+//! FEN parsing helpers keep invalid-token branches distinct so rule coverage comes from deterministic domain logic instead of shell smoke tests. (ref: DL-003)
 use std::fmt::{Display, Formatter};
 
 use serde::{Deserialize, Serialize};
@@ -270,23 +271,11 @@ impl GameState {
         Self::validate_king_count(&board, Side::White)?;
         Self::validate_king_count(&board, Side::Black)?;
 
-        let side_to_move = match fields[1] {
-            "w" => Side::White,
-            "b" => Side::Black,
-            _ => return Err(FenError::InvalidSideToMove),
-        };
+        let side_to_move = Self::parse_side_to_move(fields[1])?;
 
         let castling_rights = Self::parse_castling_rights(fields[2])?;
         let en_passant_target = Self::parse_en_passant_target(fields[3])?;
-        let halfmove_clock = fields[4]
-            .parse::<u16>()
-            .map_err(|_| FenError::InvalidHalfmoveClock)?;
-        let fullmove_number = fields[5]
-            .parse::<u16>()
-            .map_err(|_| FenError::InvalidFullmoveNumber)?;
-        if fullmove_number == 0 {
-            return Err(FenError::InvalidFullmoveNumber);
-        }
+        let (halfmove_clock, fullmove_number) = Self::parse_move_counters(fields[4], fields[5])?;
 
         Ok(Self::from_parts(
             board,
@@ -297,6 +286,30 @@ impl GameState {
             fullmove_number,
             Vec::new(),
         ))
+    }
+
+    fn parse_side_to_move(field: &str) -> Result<Side, FenError> {
+        match field {
+            "w" => Ok(Side::White),
+            "b" => Ok(Side::Black),
+            _ => Err(FenError::InvalidSideToMove),
+        }
+    }
+
+    fn parse_move_counters(
+        halfmove_clock: &str,
+        fullmove_number: &str,
+    ) -> Result<(u16, u16), FenError> {
+        let halfmove_clock = halfmove_clock
+            .parse::<u16>()
+            .map_err(|_| FenError::InvalidHalfmoveClock)?;
+        let fullmove_number = fullmove_number
+            .parse::<u16>()
+            .map_err(|_| FenError::InvalidFullmoveNumber)?;
+        if fullmove_number == 0 {
+            return Err(FenError::InvalidFullmoveNumber);
+        }
+        Ok((halfmove_clock, fullmove_number))
     }
 
     #[must_use]

@@ -20,7 +20,8 @@ pub fn square_to_board_translation(square: Square, square_size: f32, board_heigh
 #[must_use]
 pub fn world_to_square(world: Vec3, square_size: f32) -> Option<Square> {
     let half_board = square_size * 4.0;
-    if !(-half_board..half_board).contains(&world.x) || !(-half_board..half_board).contains(&world.z)
+    if !(-half_board..half_board).contains(&world.x)
+        || !(-half_board..half_board).contains(&world.z)
     {
         return None;
     }

@@ -1,12 +1,16 @@
+use tempfile::tempdir;
+
 use bevy::prelude::*;
 use bevy::state::app::StatesPlugin;
 use chess_core::{GameState, Move, Piece, PieceKind, Side, Square};
 use game_app::{
-    AppScreenState, AppShellPlugin, BoardScenePlugin, MatchSession, MoveFeedbackPlugin,
-    PieceViewPlugin, PieceVisual, ShellInputPlugin, ShellTheme,
+    AiMatchPlugin, AppScreenState, AppShellPlugin, BoardScenePlugin, ChessAudioPlugin,
+    MatchLaunchIntent, MatchSession, MenuAction, MenuPlugin, MoveFeedbackPlugin,
+    PendingLoadedSnapshot, PieceViewPlugin, PieceVisual, SaveLoadPlugin, SaveRootOverride,
+    ShellInputPlugin, ShellTheme,
 };
 
-fn test_app() -> App {
+fn test_app(root: &std::path::Path) -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(StatesPlugin)
@@ -16,23 +20,33 @@ fn test_app() -> App {
         .insert_resource(ButtonInput::<MouseButton>::default())
         .insert_resource(ShellTheme::default())
         .insert_resource(MatchSession::start_local_match())
+        .insert_resource(MatchLaunchIntent::default())
+        .insert_resource(PendingLoadedSnapshot::default())
+        .insert_resource(SaveRootOverride(Some(root.to_path_buf())))
         .init_state::<AppScreenState>()
         .add_plugins((
+            MenuPlugin,
+            SaveLoadPlugin,
             AppShellPlugin,
             BoardScenePlugin,
             PieceViewPlugin,
             ShellInputPlugin,
             MoveFeedbackPlugin,
+            AiMatchPlugin,
+            ChessAudioPlugin,
         ));
     app
 }
 
-fn enter_in_match(app: &mut App) {
+fn bootstrap_shell(app: &mut App) {
     app.update();
     app.update();
-    app.world_mut()
-        .resource_mut::<NextState<AppScreenState>>()
-        .set(AppScreenState::MatchLoading);
+}
+
+fn enter_local_match(app: &mut App) {
+    app.world_mut().write_message(MenuAction::OpenSetup);
+    app.update();
+    app.world_mut().write_message(MenuAction::StartNewMatch);
     app.update();
     app.update();
     app.update();
@@ -52,8 +66,10 @@ fn piece_visuals(app: &mut App) -> Vec<PieceVisual> {
 
 #[test]
 fn promotion_flow_resolves_pending_promotion_with_keyboard_choice() {
-    let mut app = test_app();
-    enter_in_match(&mut app);
+    let root = tempdir().expect("temporary directory should be created");
+    let mut app = test_app(root.path());
+    bootstrap_shell(&mut app);
+    enter_local_match(&mut app);
 
     let from = Square::from_algebraic("a7").expect("valid square");
     let to = Square::from_algebraic("a8").expect("valid square");
@@ -69,9 +85,11 @@ fn promotion_flow_resolves_pending_promotion_with_keyboard_choice() {
 
     app.update();
 
-    assert!(ui_texts(&mut app)
-        .iter()
-        .any(|text| text == "Choose Promotion"));
+    assert!(
+        ui_texts(&mut app)
+            .iter()
+            .any(|text| text == "Choose Promotion")
+    );
 
     app.world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
@@ -93,7 +111,6 @@ fn promotion_flow_resolves_pending_promotion_with_keyboard_choice() {
 
     let piece_visuals = piece_visuals(&mut app);
     assert!(piece_visuals.iter().any(|piece_visual| {
-        piece_visual.square == to
-            && piece_visual.piece == Piece::new(Side::White, PieceKind::Queen)
+        piece_visual.square == to && piece_visual.piece == Piece::new(Side::White, PieceKind::Queen)
     }));
 }

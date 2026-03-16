@@ -123,6 +123,63 @@ jobs:
       - name: Run test suite
         run: cargo test --workspace
 
+  coverage:
+    name: coverage (ubuntu)
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy, test]
+    env:
+      COVERAGE_MODE: ${{ vars.COVERAGE_MODE || 'baseline' }}
+      CARGO_LLVM_COV_VERSION: "0.6.16"
+      COVERAGE_WORKSPACE_THRESHOLD: ${{ vars.COVERAGE_WORKSPACE_THRESHOLD }}
+      COVERAGE_CHESS_CORE_THRESHOLD: ${{ vars.COVERAGE_CHESS_CORE_THRESHOLD }}
+      COVERAGE_CHESS_PERSISTENCE_THRESHOLD: ${{ vars.COVERAGE_CHESS_PERSISTENCE_THRESHOLD }}
+      COVERAGE_ENGINE_UCI_THRESHOLD: ${{ vars.COVERAGE_ENGINE_UCI_THRESHOLD }}
+      COVERAGE_GAME_APP_THRESHOLD: ${{ vars.COVERAGE_GAME_APP_THRESHOLD }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.93.0
+          components: llvm-tools-preview
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libudev-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxkbcommon-dev \
+            libxrandr-dev \
+            libxxf86vm-dev \
+            pkg-config
+      - name: Run workspace coverage
+        run: bash tools/ci/coverage-workspace.sh "$GITHUB_WORKSPACE" "$RUNNER_TEMP/coverage"
+      - name: Print coverage summary
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/coverage/summary.txt" ]]; then
+            cat "$RUNNER_TEMP/coverage/summary.txt"
+          else
+            echo "Coverage summary not generated."
+          fi
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: warn
+          name: coverage-report
+          path: ${{ runner.temp }}/coverage
+
   build-release:
     name: build-release (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -156,6 +213,33 @@ jobs:
             libxkbcommon-dev \
             libxrandr-dev \
             libxxf86vm-dev \
-            pkg-config
+            pkg-config \
+            xvfb
       - name: Build release workspace
         run: cargo build --workspace --release
+      - name: Package Linux artifact
+        if: runner.os == 'Linux'
+        run: bash tools/ci/package-game-app.sh "$GITHUB_WORKSPACE" "$RUNNER_TEMP/artifacts" "game_app-linux-x86_64"
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: tools/ci/package-game-app.ps1 -WorkspaceRoot $env:GITHUB_WORKSPACE -DistDir "$env:RUNNER_TEMP/artifacts" -ArtifactName "game_app-windows-x86_64"
+      - name: Smoke boot Linux artifact
+        if: runner.os == 'Linux'
+        run: bash tools/ci/smoke-boot-linux.sh "$RUNNER_TEMP/artifacts/game_app-linux-x86_64.tar.gz"
+      - name: Smoke boot Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: tools/ci/smoke-boot-windows.ps1 -ArchivePath "$env:RUNNER_TEMP/artifacts/game_app-windows-x86_64.zip"
+      - name: Upload Linux artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: game_app-linux-x86_64
+          path: ${{ runner.temp }}/artifacts/game_app-linux-x86_64.tar.gz
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: game_app-windows-x86_64
+          path: ${{ runner.temp }}/artifacts/game_app-windows-x86_64.zip

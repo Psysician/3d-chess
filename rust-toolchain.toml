@@ -1,4 +1,6 @@
+# llvm-tools-preview stays pinned with the workspace toolchain so cargo-llvm-cov
+# uses the same instrumentation components locally and in CI. (ref: DL-001) (ref: DL-006)
 [toolchain]
 channel = "1.93.0"
-components = ["clippy", "rustfmt"]
+components = ["clippy", "llvm-tools-preview", "rustfmt"]
 profile = "minimal"

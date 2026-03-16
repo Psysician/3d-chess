@@ -1,21 +1,16 @@
 # 3D Chess
 
-Repository for a 3D chess game.
+Rust and Bevy workspace for a desktop 3D chess game.
 
 ## Status
 
-M2 local board interaction and playable match flow complete.
+M3 completes the local playable game loop and product shell.
 
 - Stack: Rust + Bevy
 - Platforms: Windows and Linux
-- Scope: standard chess on one board rendered in 3D
-- Modes: local play and Stockfish-backed AI
-- Input: mouse and keyboard
-- Persistence: save/load
-- Quality bar: polished production visuals
-- Verification: strong rules coverage and early CI/build checks
-- Implemented: full standard-chess domain rules, versioned match snapshots, and a local playable Bevy match loop with promotion, claim-draw flow, and result transitions
-- Current app shell: procedurally rendered 3D board driven by `chess_core` through `MatchSession`
+- Scope: standard chess on one 3D board
+- Implemented: authoritative standard-chess rules, local playable match flow, manual save/load, interrupted-session recovery, persisted shell settings, and portable CI artifacts with packaged boot smoke
+- Deferred beyond M3: Stockfish/UCI-driven matches, installer or signing work, and broader graphics, audio, controls, or accessibility settings
 
 ## Planning Docs
 
@@ -51,16 +46,23 @@ M2 local board interaction and playable match flow complete.
 - `cargo run -p game_app`
 - `cargo build --workspace --release`
 
-## Milestone Boundaries
+## Architecture Boundaries
 
-- `chess_core` stays pure Rust and owns the authoritative chess domain.
-- `chess_persistence` owns versioned save boundaries and snapshot formats.
-- `engine_uci` reserves the Stockfish/UCI integration boundary.
-- `game_app` owns Bevy rendering, UI, input, scene setup, and match orchestration.
+- `chess_core` stays pure Rust and remains the only gameplay authority for rules, legality, and outcomes.
+- `chess_persistence` owns versioned snapshot formats, file-backed repository I/O, platform app-data roots, and the narrow M3 settings contract.
+- `game_app` keeps top-level routing coarse and renders menus, pause overlays, promotion UI, save/load flow, and result screens around `MatchSession`.
+- `engine_uci` reserves the Stockfish/UCI integration boundary instead of leaking AI concerns into the shipped local shell.
 
-## Current State
+## M3 Invariants
 
-- M0 is complete: workspace layout, Bevy shell baseline, CI, toolchain pin, and developer commands are in place.
-- M1 is complete: `chess_core` now owns legal move generation, move application, check/checkmate/stalemate, castling, en passant, promotion, draw semantics, and exact FEN support.
-- M2 is complete: `game_app` now starts local matches, syncs board/piece presentation from `GameState`, supports mouse square selection plus keyboard promotion shortcuts, exposes claim-draw flow, and routes into result/rematch states.
-- `chess_persistence` still snapshots full `GameState` so save/load can preserve legality-critical state once later shell work lands.
+- Save/load restores domain state plus legality-critical shell state; it does not serialize Bevy ECS world state.
+- Match launch always flows through an explicit new, load, resume, or rematch intent before entering `InMatch`.
+- Manual saves and interrupted-session recovery remain separate user concepts with separate overwrite behavior.
+- CI publishes portable Windows and Linux archives and proves packaged boot with smoke scripts; installer and signing work stays outside M3.
+
+## Milestone State
+
+- M0: workspace layout, Bevy shell baseline, CI, toolchain pin, and developer commands.
+- M1: `chess_core` legal move generation, move application, check and mate resolution, draw semantics, castling, en passant, promotion, and FEN support.
+- M2: `game_app` local match startup, board and piece synchronization, square picking, promotion flow, claim-draw flow, and result transitions.
+- M3: `chess_persistence` file-backed saves, recovery state, and shell settings; `game_app` main-menu setup, pause overlays, save/load UX, recovery resume, and result rematch flow; CI packaging and packaged startup smoke on both desktop targets.

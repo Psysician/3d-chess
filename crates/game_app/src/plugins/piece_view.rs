@@ -48,22 +48,39 @@ impl FromWorld for PieceVisualAssets {
             )
         };
 
-        let (
-            king_mesh,
-            queen_mesh,
-            rook_mesh,
-            bishop_mesh,
-            knight_mesh,
-            pawn_mesh,
-        ) = {
+        let (king_mesh, queen_mesh, rook_mesh, bishop_mesh, knight_mesh, pawn_mesh) = {
             let mut meshes = world.resource_mut::<Assets<Mesh>>();
             (
-                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::King), footprint)),
-                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::Queen), footprint)),
-                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::Rook), footprint)),
-                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::Bishop), footprint)),
-                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::Knight), footprint)),
-                meshes.add(Cuboid::new(footprint, piece_height(PieceKind::Pawn), footprint)),
+                meshes.add(Cuboid::new(
+                    footprint,
+                    piece_height(PieceKind::King),
+                    footprint,
+                )),
+                meshes.add(Cuboid::new(
+                    footprint,
+                    piece_height(PieceKind::Queen),
+                    footprint,
+                )),
+                meshes.add(Cuboid::new(
+                    footprint,
+                    piece_height(PieceKind::Rook),
+                    footprint,
+                )),
+                meshes.add(Cuboid::new(
+                    footprint,
+                    piece_height(PieceKind::Bishop),
+                    footprint,
+                )),
+                meshes.add(Cuboid::new(
+                    footprint,
+                    piece_height(PieceKind::Knight),
+                    footprint,
+                )),
+                meshes.add(Cuboid::new(
+                    footprint,
+                    piece_height(PieceKind::Pawn),
+                    footprint,
+                )),
             )
         };
 
