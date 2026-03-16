@@ -8,7 +8,8 @@ Use this as the execution checklist for the long Ralph run.
 - [x] Run `cargo clippy --workspace --all-targets -- -D warnings`
 - [x] Run `cargo test --workspace`
 - [x] Run `bash tools/ci/coverage-workspace.sh "$PWD" /tmp/3d-chess-coverage-baseline`
-- [ ] Record the starting summary from `/tmp/3d-chess-coverage-baseline/summary.txt`
+- [x] Record the starting summary from `/tmp/3d-chess-coverage-baseline/summary.txt`
+  - Starting summary (mode: baseline): workspace 90.09% (4216/4680), chess_core 89.95% (940/1045), chess_persistence 95.49% (339/355), engine_uci 100.00% (78/78), game_app 89.29% (2859/3202)
 - [ ] Inspect `.github/workflows/ci.yml`, `tools/ci/coverage-workspace.sh`, and `tools/ci/parse_coverage.py` before changing coverage strategy
 
 ## Phase 1: Measured Coverage Hotspots
