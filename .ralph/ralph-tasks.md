@@ -5,7 +5,7 @@ Use this as the execution checklist for the long Ralph run.
 ## Phase 0: Baseline
 
 - [x] Run `cargo fmt --all --check`
-- [ ] Run `cargo clippy --workspace --all-targets -- -D warnings`
+- [x] Run `cargo clippy --workspace --all-targets -- -D warnings`
 - [ ] Run `cargo test --workspace`
 - [ ] Run `bash tools/ci/coverage-workspace.sh "$PWD" /tmp/3d-chess-coverage-baseline`
 - [ ] Record the starting summary from `/tmp/3d-chess-coverage-baseline/summary.txt`
