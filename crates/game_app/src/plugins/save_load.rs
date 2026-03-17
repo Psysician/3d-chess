@@ -1,3 +1,7 @@
+// Save and settings requests remain centralized here so shell and automation
+// send semantic intents instead of mutating durable state directly.
+// (refs: DL-003, DL-006)
+
 //! Shell persistence orchestration for manual saves, interrupted-session recovery, and settings.
 //! Repository I/O lives here so manual saves, interrupted-session recovery, and the shipped settings trio of startup recovery, destructive confirmations, and display mode stay behind one snapshot-based boundary. (ref: DL-002) (ref: DL-005) (ref: DL-007) (ref: DL-008)
 //! Extracted helpers carry branch-heavy copy and recovery-visibility rules so the Bevy plugin remains in scope while direct tests cover the decision surface. (ref: DL-002) (ref: DL-004) (ref: DL-007)
@@ -11,7 +15,8 @@ use chess_persistence::{
     SnapshotMetadata, StoreResult,
 };
 
-use super::menu::{MenuContext, MenuPanel, RecoveryBannerState, ShellMenuState};
+use super::app_shell_logic;
+use super::menu::{ConfirmationKind, MenuContext, MenuPanel, RecoveryBannerState, ShellMenuState};
 use super::save_load_logic;
 use crate::app::AppScreenState;
 use crate::match_state::{MatchLaunchIntent, MatchSession, PendingLoadedSnapshot};
@@ -67,6 +72,9 @@ pub enum SaveLoadRequest {
     ClearRecovery,
     AbandonMatchAndReturnToMenu,
     PersistSettings,
+    CycleRecoveryPolicy,
+    ToggleDisplayMode,
+    ToggleConfirmation(ConfirmationKind),
 }
 
 #[derive(Resource, Default)]
@@ -284,23 +292,38 @@ fn handle_save_load_requests(
                     ));
                 }
             },
-            SaveLoadRequest::PersistSettings => match store.0.save_settings(&save_state.settings) {
-                Ok(()) => {
-                    save_state.last_error = None;
-                    save_state.last_message = Some(String::from("Saved shell settings."));
-                    save_load_logic::sync_cached_recovery_visibility(
-                        &save_state,
-                        &mut recovery_banner,
-                    );
+            SaveLoadRequest::CycleRecoveryPolicy => {
+                save_state.settings.recovery_policy =
+                    app_shell_logic::next_recovery_policy(save_state.settings.recovery_policy);
+                persist_settings_update(&store, &mut save_state, &mut recovery_banner);
+            }
+            SaveLoadRequest::ToggleDisplayMode => {
+                save_state.settings.display_mode = match save_state.settings.display_mode {
+                    DisplayMode::Windowed => DisplayMode::Fullscreen,
+                    DisplayMode::Fullscreen => DisplayMode::Windowed,
+                };
+                persist_settings_update(&store, &mut save_state, &mut recovery_banner);
+            }
+            SaveLoadRequest::ToggleConfirmation(kind) => {
+                match kind {
+                    ConfirmationKind::AbandonMatch => {
+                        save_state.settings.confirm_actions.abandon_match =
+                            !save_state.settings.confirm_actions.abandon_match;
+                    }
+                    ConfirmationKind::DeleteSave => {
+                        save_state.settings.confirm_actions.delete_save =
+                            !save_state.settings.confirm_actions.delete_save;
+                    }
+                    ConfirmationKind::OverwriteSave => {
+                        save_state.settings.confirm_actions.overwrite_save =
+                            !save_state.settings.confirm_actions.overwrite_save;
+                    }
                 }
-                Err(_) => {
-                    save_state.last_error = Some(String::from("Unable to save shell settings."));
-                    save_load_logic::sync_cached_recovery_visibility(
-                        &save_state,
-                        &mut recovery_banner,
-                    );
-                }
-            },
+                persist_settings_update(&store, &mut save_state, &mut recovery_banner);
+            }
+            SaveLoadRequest::PersistSettings => {
+                persist_settings_update(&store, &mut save_state, &mut recovery_banner);
+            }
         }
     }
 }
@@ -360,6 +383,24 @@ fn clear_result_recovery_cache(
             save_state.last_error = Some(String::from(
                 "Unable to clear interrupted-session recovery.",
             ));
+            save_load_logic::sync_cached_recovery_visibility(save_state, recovery_banner);
+        }
+    }
+}
+
+fn persist_settings_update(
+    store: &SessionStoreResource,
+    save_state: &mut SaveLoadState,
+    recovery_banner: &mut RecoveryBannerState,
+) {
+    match store.0.save_settings(&save_state.settings) {
+        Ok(()) => {
+            save_state.last_error = None;
+            save_state.last_message = Some(String::from("Saved shell settings."));
+            save_load_logic::sync_cached_recovery_visibility(save_state, recovery_banner);
+        }
+        Err(_) => {
+            save_state.last_error = Some(String::from("Unable to save shell settings."));
             save_load_logic::sync_cached_recovery_visibility(save_state, recovery_banner);
         }
     }

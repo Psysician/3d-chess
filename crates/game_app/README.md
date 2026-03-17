@@ -12,6 +12,13 @@
 - `AppShellPlugin` renders the main menu, pause surfaces, promotion overlay, and result flow from modal shell resources while board and piece rendering stay in dedicated scene plugins.
 - Board rendering, piece placement, and cursor picking all share the same coordinate helpers in `board_coords.rs`.
 
+## Automation Seam
+
+- `build_headless_app` composes the shipped shell graph without a native window for integration tests and agent harnesses.
+- `AutomationHarness` boots that graph and captures semantic snapshots of screen, shell, save/load, and match state.
+- `AutomationPlugin` owns command dispatch so automation, shell buttons, and raw input stay on one semantic path.
+- The `game_app_agent` binary adds JSON Lines `stdio` transport only when the `automation-transport` feature is enabled.
+
 ## Invariants
 
 - `chess_core::GameState` remains the source of truth for legal moves, side to move, checks, and terminal outcomes.
@@ -31,3 +38,7 @@
 - The board and pieces stay procedural so effort goes into interaction correctness, persistence flow, and test coverage instead of asset pipelines.
 - Picking uses internal camera-ray math because the board plane is fixed and deterministic; a generic picking dependency would add surface area without helping the current use case.
 - Claimable draws are resolved in `MatchSession` so the shell can end claimable games without widening `chess_core` beyond the persisted session contract it already owns.
+
+## Automation Contract
+
+`AutomationSnapshot` reads `MatchSession`, `ShellMenuState`, `SaveLoadState`, and `RecoveryBannerState`, so observers stay aligned with player-visible state instead of ECS internals. `AutomationMatchAction`, `AutomationNavigationAction`, and `AutomationSaveAction` route through the same helpers that shell buttons and raw input use. (refs: DL-002, DL-003)

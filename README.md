@@ -16,6 +16,7 @@ M3 completes the local playable game loop and product shell.
 
 - [Milestones](/home/franky/repos/3d-chess/plans/milestones.md)
 - [Implementation Plan](/home/franky/repos/3d-chess/plans/implementation-plan.md)
+- [Agent Testing Plan](/home/franky/repos/3d-chess/plans/agent-testing.md)
 
 ## Workspace Layout
 
@@ -44,6 +45,7 @@ M3 completes the local playable game loop and product shell.
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
 - `cargo run -p game_app`
+- `cargo run -p game_app --features automation-transport --bin game_app_agent`
 - `cargo build --workspace --release`
 
 ## Architecture Boundaries
@@ -51,6 +53,7 @@ M3 completes the local playable game loop and product shell.
 - `chess_core` stays pure Rust and remains the only gameplay authority for rules, legality, and outcomes.
 - `chess_persistence` owns versioned snapshot formats, file-backed repository I/O, platform app-data roots, and the narrow M3 settings contract.
 - `game_app` keeps top-level routing coarse and renders menus, pause overlays, promotion UI, save/load flow, and result screens around `MatchSession`.
+- Agent automation remains opt-in: `AutomationHarness` and the feature-gated `game_app_agent` binary route semantic commands and snapshots through `game_app` without changing `cargo run -p game_app`.
 - `engine_uci` reserves the Stockfish/UCI integration boundary instead of leaking AI concerns into the shipped local shell.
 
 ## M3 Invariants
@@ -66,3 +69,7 @@ M3 completes the local playable game loop and product shell.
 - M1: `chess_core` legal move generation, move application, check and mate resolution, draw semantics, castling, en passant, promotion, and FEN support.
 - M2: `game_app` local match startup, board and piece synchronization, square picking, promotion flow, claim-draw flow, and result transitions.
 - M3: `chess_persistence` file-backed saves, recovery state, and shell settings; `game_app` main-menu setup, pause overlays, save/load UX, recovery resume, and result rematch flow; CI packaging and packaged startup smoke on both desktop targets.
+
+## Agent Automation
+
+`game_app` supports an opt-in headless automation seam for tests and local agents. A feature-gated `game_app_agent` binary exposes the same semantic contract over `stdio` without changing the default GUI workflow. (refs: DL-004, DL-005)
