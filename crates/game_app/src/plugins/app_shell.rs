@@ -1,11 +1,19 @@
+// Shell handlers translate semantic navigation, save, settings, and
+// confirmation actions into the existing message flow.
+// (refs: DL-003, DL-005)
+
 //! Presentation layer for the coarse app shell.
 //! Main menu, pause overlay, and results render from modal resources while match launch still funnels through MatchLoading. (ref: DL-001) (ref: DL-007)
 
 use bevy::prelude::*;
 use chess_core::PieceKind;
-use chess_persistence::DisplayMode;
 
+use crate::automation::{
+    AutomationConfirmationKind, AutomationError, AutomationNavigationAction,
+    AutomationResult, AutomationSaveAction, AutomationSettingsAction,
+};
 use super::app_shell_logic;
+use super::input::apply_promotion_choice;
 use super::menu::{
     ConfirmationKind, MenuAction, MenuContext, MenuPanel, RecoveryBannerState, ShellMenuState,
 };
@@ -79,6 +87,66 @@ enum ShellAction {
     CancelModal,
     Confirm(ConfirmationKind),
     Promote(PieceKind),
+}
+
+impl From<ConfirmationKind> for AutomationConfirmationKind {
+    fn from(value: ConfirmationKind) -> Self {
+        match value {
+            ConfirmationKind::AbandonMatch => Self::AbandonMatch,
+            ConfirmationKind::DeleteSave => Self::DeleteSave,
+            ConfirmationKind::OverwriteSave => Self::OverwriteSave,
+        }
+    }
+}
+
+impl From<AutomationConfirmationKind> for ConfirmationKind {
+    fn from(value: AutomationConfirmationKind) -> Self {
+        match value {
+            AutomationConfirmationKind::AbandonMatch => Self::AbandonMatch,
+            AutomationConfirmationKind::DeleteSave => Self::DeleteSave,
+            AutomationConfirmationKind::OverwriteSave => Self::OverwriteSave,
+        }
+    }
+}
+
+fn navigation_from_shell(action: &ShellAction) -> Option<AutomationNavigationAction> {
+    match action {
+        ShellAction::OpenSetup => Some(AutomationNavigationAction::OpenSetup),
+        ShellAction::BackToSetup => Some(AutomationNavigationAction::BackToSetup),
+        ShellAction::StartNewMatch => Some(AutomationNavigationAction::StartNewMatch),
+        ShellAction::OpenLoadList => Some(AutomationNavigationAction::OpenLoadList),
+        ShellAction::OpenSettings => Some(AutomationNavigationAction::OpenSettings),
+        ShellAction::ResumeRecovery => Some(AutomationNavigationAction::ResumeRecovery),
+        ShellAction::ResumeMatch => Some(AutomationNavigationAction::ResumeMatch),
+        ShellAction::ReturnToMenu => Some(AutomationNavigationAction::ReturnToMenu),
+        ShellAction::Rematch => Some(AutomationNavigationAction::Rematch),
+        ShellAction::CancelModal => Some(AutomationNavigationAction::CancelModal),
+        _ => None,
+    }
+}
+
+fn save_from_shell(action: &ShellAction) -> Option<AutomationSaveAction> {
+    match action {
+        ShellAction::SaveManual => Some(AutomationSaveAction::SaveManual { label: None }),
+        ShellAction::OverwriteSelectedSave => Some(AutomationSaveAction::OverwriteSelected),
+        ShellAction::LoadSelected => Some(AutomationSaveAction::LoadSelected),
+        ShellAction::DeleteSelected => Some(AutomationSaveAction::DeleteSelected),
+        ShellAction::SelectSave(slot_id) => Some(AutomationSaveAction::SelectSlot {
+            slot_id: slot_id.clone(),
+        }),
+        _ => None,
+    }
+}
+
+fn settings_from_shell(action: &ShellAction) -> Option<AutomationSettingsAction> {
+    match action {
+        ShellAction::CycleRecoveryPolicy => Some(AutomationSettingsAction::CycleRecoveryPolicy),
+        ShellAction::ToggleDisplayMode => Some(AutomationSettingsAction::ToggleDisplayMode),
+        ShellAction::ToggleConfirmation(kind) => Some(AutomationSettingsAction::ToggleConfirmation {
+            kind: (*kind).into(),
+        }),
+        _ => None,
+    }
 }
 
 #[derive(Component)]
@@ -839,7 +907,7 @@ fn handle_shell_button_actions(
     interaction_query: Query<(&Interaction, &ShellActionButton), Changed<Interaction>>,
     state: Res<State<AppScreenState>>,
     menu_state: Res<ShellMenuState>,
-    mut save_state: ResMut<SaveLoadState>,
+    save_state: Res<SaveLoadState>,
     mut menu_actions: MessageWriter<MenuAction>,
     mut save_requests: MessageWriter<SaveLoadRequest>,
     mut match_session_mut: ResMut<MatchSession>,
@@ -850,57 +918,51 @@ fn handle_shell_button_actions(
         }
 
         match &button_action.action {
-            ShellAction::OpenSetup
-            | ShellAction::BackToSetup
-            | ShellAction::StartNewMatch
-            | ShellAction::OpenLoadList
-            | ShellAction::OpenSettings
-            | ShellAction::ResumeRecovery
-            | ShellAction::ResumeMatch
-            | ShellAction::ReturnToMenu
-            | ShellAction::Rematch => handle_navigation_action(
-                &button_action.action,
-                *state.get(),
-                menu_state.as_ref(),
-                save_state.as_ref(),
-                &mut menu_actions,
-                &mut save_requests,
-            ),
-            ShellAction::SaveManual
-            | ShellAction::OverwriteSelectedSave
-            | ShellAction::LoadSelected
-            | ShellAction::DeleteSelected
-            | ShellAction::SelectSave(_) => handle_save_slot_action(
-                &button_action.action,
-                menu_state.as_ref(),
-                save_state.as_ref(),
-                &mut menu_actions,
-                &mut save_requests,
-                match_session_mut.as_ref(),
-            ),
-            ShellAction::CycleRecoveryPolicy
-            | ShellAction::ToggleDisplayMode
-            | ShellAction::ToggleConfirmation(_) => handle_settings_action(
-                &button_action.action,
-                save_state.as_mut(),
-                &mut save_requests,
-            ),
-            ShellAction::CancelModal | ShellAction::Confirm(_) => handle_confirmation_action(
-                &button_action.action,
-                menu_state.as_ref(),
-                save_state.as_ref(),
-                &mut menu_actions,
-                &mut save_requests,
-            ),
-            ShellAction::Promote(piece_kind) => {
-                handle_promotion_action(*piece_kind, match_session_mut.as_mut());
+            action if navigation_from_shell(action).is_some() => {
+                handle_navigation_action(
+                    navigation_from_shell(action).unwrap(),
+                    *state.get(),
+                    menu_state.as_ref(),
+                    save_state.as_ref(),
+                    &mut menu_actions,
+                    &mut save_requests,
+                );
             }
+            action if save_from_shell(action).is_some() => {
+                let _ = handle_save_slot_action(
+                    &save_from_shell(action).unwrap(),
+                    menu_state.as_ref(),
+                    save_state.as_ref(),
+                    &mut menu_actions,
+                    &mut save_requests,
+                    match_session_mut.as_ref(),
+                );
+            }
+            action if settings_from_shell(action).is_some() => {
+                handle_settings_action(
+                    &settings_from_shell(action).unwrap(),
+                    &mut save_requests,
+                );
+            }
+            ShellAction::Confirm(kind) => {
+                let _ = handle_confirmation_action(
+                    (*kind).into(),
+                    menu_state.as_ref(),
+                    save_state.as_ref(),
+                    &mut menu_actions,
+                    &mut save_requests,
+                );
+            }
+            ShellAction::Promote(piece_kind) => {
+                let _ = handle_promotion_action(*piece_kind, match_session_mut.as_mut());
+            }
+            _ => {}
         }
     }
 }
 
-fn handle_navigation_action(
-    action: &ShellAction,
+pub(crate) fn handle_navigation_action(
+    action: AutomationNavigationAction,
     state: AppScreenState,
     menu_state: &ShellMenuState,
     save_state: &SaveLoadState,
@@ -908,34 +970,39 @@ fn handle_navigation_action(
     save_requests: &mut MessageWriter<SaveLoadRequest>,
 ) {
     match action {
-        ShellAction::OpenSetup => {
+        AutomationNavigationAction::OpenSetup => {
             menu_actions.write(MenuAction::OpenSetup);
         }
-        ShellAction::BackToSetup => {
+        AutomationNavigationAction::BackToSetup => {
             menu_actions.write(MenuAction::BackToSetup);
         }
-        ShellAction::StartNewMatch => {
-            menu_actions.write(MenuAction::StartNewMatch);
-        }
-        ShellAction::OpenLoadList => {
+        AutomationNavigationAction::OpenLoadList => {
             menu_actions.write(MenuAction::OpenLoadList);
         }
-        ShellAction::OpenSettings => {
+        AutomationNavigationAction::OpenSettings => {
             menu_actions.write(MenuAction::OpenSettings);
         }
-        ShellAction::ResumeRecovery => {
+        AutomationNavigationAction::StartNewMatch => {
+            menu_actions.write(MenuAction::StartNewMatch);
+        }
+        AutomationNavigationAction::ResumeRecovery => {
             save_requests.write(SaveLoadRequest::ResumeRecovery);
         }
-        ShellAction::ResumeMatch => {
+        AutomationNavigationAction::PauseMatch => {
+            menu_actions.write(MenuAction::PauseMatch);
+        }
+        AutomationNavigationAction::ResumeMatch => {
             menu_actions.write(MenuAction::ResumeMatch);
         }
-        ShellAction::ReturnToMenu => {
+        AutomationNavigationAction::ReturnToMenu => {
             request_return_to_menu(state, menu_state, save_state, menu_actions, save_requests);
         }
-        ShellAction::Rematch => {
+        AutomationNavigationAction::Rematch => {
             menu_actions.write(MenuAction::Rematch);
         }
-        _ => {}
+        AutomationNavigationAction::CancelModal => {
+            menu_actions.write(MenuAction::CancelModal);
+        }
     }
 }
 
@@ -959,22 +1026,27 @@ fn request_return_to_menu(
     }
 }
 
-fn handle_save_slot_action(
-    action: &ShellAction,
+pub(crate) fn handle_save_slot_action(
+    action: &AutomationSaveAction,
     menu_state: &ShellMenuState,
     save_state: &SaveLoadState,
     menu_actions: &mut MessageWriter<MenuAction>,
     save_requests: &mut MessageWriter<SaveLoadRequest>,
     match_session: &MatchSession,
-) {
+) -> AutomationResult<()> {
     match action {
-        ShellAction::SaveManual => {
+        AutomationSaveAction::RefreshIndex => {
+            save_requests.write(SaveLoadRequest::RefreshIndex);
+        }
+        AutomationSaveAction::SaveManual { label } => {
             save_requests.write(SaveLoadRequest::SaveManual {
-                label: app_shell_logic::derive_save_label(match_session.last_move),
+                label: label
+                    .clone()
+                    .unwrap_or_else(|| app_shell_logic::derive_save_label(match_session.last_move)),
                 slot_id: None,
             });
         }
-        ShellAction::OverwriteSelectedSave => {
+        AutomationSaveAction::OverwriteSelected => {
             if let Some(selected) = app_shell_logic::selected_save_summary(menu_state, save_state) {
                 if save_state.settings.confirm_actions.overwrite_save {
                     menu_actions.write(MenuAction::RequestConfirmation(
@@ -986,14 +1058,18 @@ fn handle_save_slot_action(
                         slot_id: Some(selected.slot_id.clone()),
                     });
                 }
+            } else {
+                return Err(AutomationError::SaveSelectionRequired);
             }
         }
-        ShellAction::LoadSelected => {
+        AutomationSaveAction::LoadSelected => {
             if let Some(slot_id) = menu_state.selected_save.clone() {
                 save_requests.write(SaveLoadRequest::LoadManual { slot_id });
+            } else {
+                return Err(AutomationError::SaveSelectionRequired);
             }
         }
-        ShellAction::DeleteSelected => {
+        AutomationSaveAction::DeleteSelected => {
             if let Some(slot_id) = menu_state.selected_save.clone() {
                 if save_state.settings.confirm_actions.delete_save {
                     menu_actions.write(MenuAction::RequestConfirmation(
@@ -1002,99 +1078,75 @@ fn handle_save_slot_action(
                 } else {
                     save_requests.write(SaveLoadRequest::DeleteManual { slot_id });
                 }
+            } else {
+                return Err(AutomationError::SaveSelectionRequired);
             }
         }
-        ShellAction::SelectSave(slot_id) => {
+        AutomationSaveAction::SelectSlot { slot_id } => {
             menu_actions.write(MenuAction::SelectSave(slot_id.clone()));
         }
-        _ => {}
     }
+    Ok(())
 }
 
-fn handle_settings_action(
-    action: &ShellAction,
-    save_state: &mut SaveLoadState,
+pub(crate) fn handle_settings_action(
+    action: &AutomationSettingsAction,
     save_requests: &mut MessageWriter<SaveLoadRequest>,
 ) {
     match action {
-        ShellAction::CycleRecoveryPolicy => {
-            save_state.settings.recovery_policy =
-                app_shell_logic::next_recovery_policy(save_state.settings.recovery_policy);
-            save_requests.write(SaveLoadRequest::PersistSettings);
+        AutomationSettingsAction::CycleRecoveryPolicy => {
+            save_requests.write(SaveLoadRequest::CycleRecoveryPolicy);
         }
-        ShellAction::ToggleDisplayMode => {
-            save_state.settings.display_mode = match save_state.settings.display_mode {
-                DisplayMode::Windowed => DisplayMode::Fullscreen,
-                DisplayMode::Fullscreen => DisplayMode::Windowed,
-            };
-            save_requests.write(SaveLoadRequest::PersistSettings);
+        AutomationSettingsAction::ToggleDisplayMode => {
+            save_requests.write(SaveLoadRequest::ToggleDisplayMode);
         }
-        ShellAction::ToggleConfirmation(kind) => {
-            match kind {
-                ConfirmationKind::AbandonMatch => {
-                    save_state.settings.confirm_actions.abandon_match =
-                        !save_state.settings.confirm_actions.abandon_match;
-                }
-                ConfirmationKind::DeleteSave => {
-                    save_state.settings.confirm_actions.delete_save =
-                        !save_state.settings.confirm_actions.delete_save;
-                }
-                ConfirmationKind::OverwriteSave => {
-                    save_state.settings.confirm_actions.overwrite_save =
-                        !save_state.settings.confirm_actions.overwrite_save;
-                }
-            }
-            save_requests.write(SaveLoadRequest::PersistSettings);
+        AutomationSettingsAction::ToggleConfirmation { kind } => {
+            save_requests.write(SaveLoadRequest::ToggleConfirmation((*kind).into()));
         }
-        _ => {}
     }
 }
 
-fn handle_confirmation_action(
-    action: &ShellAction,
+pub(crate) fn handle_confirmation_action(
+    kind: AutomationConfirmationKind,
     menu_state: &ShellMenuState,
     save_state: &SaveLoadState,
     menu_actions: &mut MessageWriter<MenuAction>,
     save_requests: &mut MessageWriter<SaveLoadRequest>,
-) {
-    match action {
-        ShellAction::CancelModal => {
+) -> AutomationResult<()> {
+    match ConfirmationKind::from(kind) {
+        ConfirmationKind::AbandonMatch => {
+            save_requests.write(SaveLoadRequest::AbandonMatchAndReturnToMenu);
+        }
+        ConfirmationKind::DeleteSave => {
+            if let Some(slot_id) = menu_state.selected_save.clone() {
+                save_requests.write(SaveLoadRequest::DeleteManual { slot_id });
+            } else {
+                return Err(AutomationError::SaveSelectionRequired);
+            }
             menu_actions.write(MenuAction::CancelModal);
         }
-        ShellAction::Confirm(kind) => match kind {
-            ConfirmationKind::AbandonMatch => {
-                save_requests.write(SaveLoadRequest::AbandonMatchAndReturnToMenu);
+        ConfirmationKind::OverwriteSave => {
+            if let Some(selected) =
+                app_shell_logic::selected_save_summary(menu_state, save_state)
+            {
+                save_requests.write(SaveLoadRequest::SaveManual {
+                    label: selected.label.clone(),
+                    slot_id: Some(selected.slot_id.clone()),
+                });
+            } else {
+                return Err(AutomationError::SaveSelectionRequired);
             }
-            ConfirmationKind::DeleteSave => {
-                if let Some(slot_id) = menu_state.selected_save.clone() {
-                    save_requests.write(SaveLoadRequest::DeleteManual { slot_id });
-                }
-                menu_actions.write(MenuAction::CancelModal);
-            }
-            ConfirmationKind::OverwriteSave => {
-                if let Some(selected) =
-                    app_shell_logic::selected_save_summary(menu_state, save_state)
-                {
-                    save_requests.write(SaveLoadRequest::SaveManual {
-                        label: selected.label.clone(),
-                        slot_id: Some(selected.slot_id.clone()),
-                    });
-                }
-                menu_actions.write(MenuAction::CancelModal);
-            }
-        },
-        _ => {}
+            menu_actions.write(MenuAction::CancelModal);
+        }
     }
+    Ok(())
 }
 
-fn handle_promotion_action(piece_kind: PieceKind, match_session: &mut MatchSession) {
-    if let Some(pending_move) = match_session.pending_promotion_move {
-        let _ = match_session.apply_move(chess_core::Move::with_promotion(
-            pending_move.from(),
-            pending_move.to(),
-            piece_kind,
-        ));
-    }
+fn handle_promotion_action(
+    piece_kind: PieceKind,
+    match_session: &mut MatchSession,
+) -> AutomationResult<()> {
+    apply_promotion_choice(match_session, piece_kind)
 }
 
 fn advance_to_match_result(
@@ -1259,7 +1311,7 @@ mod tests {
         {
             let (mut menu_actions, mut save_requests) = writers.get_mut(&mut world);
             handle_navigation_action(
-                &ShellAction::OpenSetup,
+                AutomationNavigationAction::OpenSetup,
                 AppScreenState::MainMenu,
                 &menu_state,
                 &save_state,
@@ -1267,7 +1319,7 @@ mod tests {
                 &mut save_requests,
             );
             handle_navigation_action(
-                &ShellAction::ResumeRecovery,
+                AutomationNavigationAction::ResumeRecovery,
                 AppScreenState::MainMenu,
                 &menu_state,
                 &save_state,
@@ -1275,7 +1327,7 @@ mod tests {
                 &mut save_requests,
             );
             handle_navigation_action(
-                &ShellAction::ReturnToMenu,
+                AutomationNavigationAction::ReturnToMenu,
                 AppScreenState::InMatch,
                 &menu_state,
                 &save_state,
@@ -1332,44 +1384,49 @@ mod tests {
         {
             let (mut menu_actions, mut save_requests) = writers.get_mut(&mut world);
             handle_save_slot_action(
-                &ShellAction::SaveManual,
+                &AutomationSaveAction::SaveManual { label: None },
                 &menu_state,
                 &save_state,
                 &mut menu_actions,
                 &mut save_requests,
                 &match_session,
-            );
+            )
+            .expect("save manual action should be routable");
             handle_save_slot_action(
-                &ShellAction::OverwriteSelectedSave,
+                &AutomationSaveAction::OverwriteSelected,
                 &menu_state,
                 &save_state,
                 &mut menu_actions,
                 &mut save_requests,
                 &match_session,
-            );
+            )
+            .expect("overwrite action should be routable");
             handle_save_slot_action(
-                &ShellAction::DeleteSelected,
+                &AutomationSaveAction::DeleteSelected,
                 &menu_state,
                 &save_state,
                 &mut menu_actions,
                 &mut save_requests,
                 &match_session,
-            );
+            )
+            .expect("delete action should be routable");
             handle_save_slot_action(
-                &ShellAction::LoadSelected,
+                &AutomationSaveAction::LoadSelected,
                 &menu_state,
                 &save_state,
                 &mut menu_actions,
                 &mut save_requests,
                 &match_session,
-            );
+            )
+            .expect("load action should be routable");
             handle_confirmation_action(
-                &ShellAction::Confirm(ConfirmationKind::DeleteSave),
+                AutomationConfirmationKind::DeleteSave,
                 &menu_state,
                 &save_state,
                 &mut menu_actions,
                 &mut save_requests,
-            );
+            )
+            .expect("confirmation action should be routable");
         }
 
         let menu_messages = drain_messages::<MenuAction>(&mut world);
@@ -1398,40 +1455,29 @@ mod tests {
         world.init_resource::<Messages<SaveLoadRequest>>();
         let mut writers: SaveWriterState<'_, '_> = SystemState::new(&mut world);
 
-        let mut save_state = SaveLoadState {
-            settings: ShellSettings {
-                recovery_policy: RecoveryStartupPolicy::Ask,
-                confirm_actions: ConfirmActionSettings::default(),
-                display_mode: DisplayMode::Windowed,
-            },
-            ..Default::default()
-        };
         {
             let (mut save_requests,) = writers.get_mut(&mut world);
             handle_settings_action(
-                &ShellAction::CycleRecoveryPolicy,
-                &mut save_state,
+                &AutomationSettingsAction::CycleRecoveryPolicy,
                 &mut save_requests,
             );
             handle_settings_action(
-                &ShellAction::ToggleDisplayMode,
-                &mut save_state,
+                &AutomationSettingsAction::ToggleDisplayMode,
                 &mut save_requests,
             );
             handle_settings_action(
-                &ShellAction::ToggleConfirmation(ConfirmationKind::DeleteSave),
-                &mut save_state,
+                &AutomationSettingsAction::ToggleConfirmation {
+                    kind: AutomationConfirmationKind::DeleteSave,
+                },
                 &mut save_requests,
             );
         }
         let save_messages = drain_messages::<SaveLoadRequest>(&mut world);
-        assert_eq!(
-            save_state.settings.recovery_policy,
-            RecoveryStartupPolicy::Ignore
-        );
-        assert_eq!(save_state.settings.display_mode, DisplayMode::Fullscreen);
-        assert!(!save_state.settings.confirm_actions.delete_save);
-        assert_eq!(save_messages.len(), 3);
+        assert!(save_messages.contains(&SaveLoadRequest::CycleRecoveryPolicy));
+        assert!(save_messages.contains(&SaveLoadRequest::ToggleDisplayMode));
+        assert!(save_messages.contains(&SaveLoadRequest::ToggleConfirmation(
+            ConfirmationKind::DeleteSave
+        )));
 
         type LaunchState<'w, 's> = SystemState<(
             ResMut<'w, MatchSession>,
@@ -1526,7 +1572,8 @@ mod tests {
         };
         match_session.replace_game_state(promotion_ready);
         match_session.pending_promotion_move = Some(Move::new(from, to));
-        handle_promotion_action(PieceKind::Queen, &mut match_session);
+        handle_promotion_action(PieceKind::Queen, &mut match_session)
+            .expect("promotion action should resolve the pending move");
         assert_eq!(match_session.pending_promotion_move, None);
     }
 }

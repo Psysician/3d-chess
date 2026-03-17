@@ -1,10 +1,15 @@
+// Shared match interaction helpers keep raw input and automation on one
+// legality path while `MatchSession` stays authoritative.
+// (refs: DL-003, DL-006)
+
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use chess_core::{Move, PieceKind};
+use chess_core::{Move, PieceKind, Square};
 
 use super::menu::{MenuAction, MenuContext, ShellMenuState};
 use super::save_load::SaveLoadRequest;
 use crate::app::AppScreenState;
+use crate::automation::{AutomationError, AutomationMatchAction, AutomationResult};
 use crate::board_coords::{board_plane_intersection, world_to_square};
 use crate::match_state::MatchSession;
 use crate::style::ShellTheme;
@@ -77,61 +82,7 @@ fn handle_square_clicks(
         return;
     }
 
-    let Some(clicked_square) = hovered_square.0 else {
-        match_session.selected_square = None;
-        match_session.mark_recovery_dirty();
-        return;
-    };
-    if match_session.pending_promotion_move.is_some() {
-        return;
-    }
-
-    let current_side = match_session.game_state().side_to_move();
-    let clicked_piece = match_session.piece_at(clicked_square);
-
-    let Some(selected_square) = match_session.selected_square else {
-        if clicked_piece.is_some_and(|piece| piece.side == current_side) {
-            match_session.selected_square = Some(clicked_square);
-            match_session.mark_recovery_dirty();
-        }
-        return;
-    };
-
-    if clicked_square == selected_square {
-        match_session.clear_interaction();
-        match_session.mark_recovery_dirty();
-        return;
-    }
-
-    if clicked_piece.is_some_and(|piece| piece.side == current_side) {
-        match_session.selected_square = Some(clicked_square);
-        match_session.mark_recovery_dirty();
-        return;
-    }
-
-    let candidate_moves: Vec<_> = match_session
-        .game_state()
-        .legal_moves()
-        .into_iter()
-        .filter(|candidate| candidate.from() == selected_square && candidate.to() == clicked_square)
-        .collect();
-
-    if candidate_moves.is_empty() {
-        match_session.selected_square = None;
-        match_session.mark_recovery_dirty();
-        return;
-    }
-
-    if candidate_moves
-        .iter()
-        .any(|candidate| candidate.promotion().is_some())
-    {
-        match_session.pending_promotion_move = Some(Move::new(selected_square, clicked_square));
-        match_session.mark_recovery_dirty();
-        return;
-    }
-
-    let _ = match_session.apply_move(candidate_moves[0]);
+    apply_square_interaction(match_session.as_mut(), hovered_square.0);
 }
 
 fn handle_keyboard_match_actions(
@@ -153,8 +104,7 @@ fn handle_keyboard_match_actions(
         } else if match_session.pending_promotion_move.is_some()
             || match_session.selected_square.is_some()
         {
-            match_session.clear_interaction();
-            match_session.mark_recovery_dirty();
+            clear_match_interaction(match_session.as_mut());
         } else {
             menu_actions.write(MenuAction::PauseMatch);
         }
@@ -172,7 +122,7 @@ fn handle_keyboard_match_actions(
         });
     }
 
-    let Some(pending_move) = match_session.pending_promotion_move else {
+    let Some(_pending_move) = match_session.pending_promotion_move else {
         return;
     };
 
@@ -189,12 +139,116 @@ fn handle_keyboard_match_actions(
     };
 
     if let Some(promotion_kind) = promotion_kind {
-        let _ = match_session.apply_move(Move::with_promotion(
-            pending_move.from(),
-            pending_move.to(),
-            promotion_kind,
-        ));
+        let _ = apply_promotion_choice(match_session.as_mut(), promotion_kind);
     }
+}
+
+pub(crate) fn apply_match_action(
+    match_session: &mut MatchSession,
+    action: &AutomationMatchAction,
+) -> AutomationResult<()> {
+    match action {
+        AutomationMatchAction::SelectSquare { square } => {
+            apply_square_interaction(match_session, Some(*square));
+            Ok(())
+        }
+        AutomationMatchAction::SubmitMove {
+            from,
+            to,
+            promotion,
+        } => {
+            apply_square_interaction(match_session, Some(*from));
+            apply_square_interaction(match_session, Some(*to));
+            if let Some(piece) = promotion {
+                apply_promotion_choice(match_session, *piece)?;
+            }
+            Ok(())
+        }
+        AutomationMatchAction::ChoosePromotion { piece } => {
+            apply_promotion_choice(match_session, *piece)
+        }
+        AutomationMatchAction::ClearInteraction => {
+            clear_match_interaction(match_session);
+            Ok(())
+        }
+    }
+}
+
+pub(crate) fn apply_square_interaction(
+    match_session: &mut MatchSession,
+    clicked_square: Option<Square>,
+) {
+    let Some(clicked_square) = clicked_square else {
+        clear_match_interaction(match_session);
+        return;
+    };
+    if match_session.pending_promotion_move.is_some() {
+        return;
+    }
+
+    let current_side = match_session.game_state().side_to_move();
+    let clicked_piece = match_session.piece_at(clicked_square);
+
+    let Some(selected_square) = match_session.selected_square else {
+        if clicked_piece.is_some_and(|piece| piece.side == current_side) {
+            match_session.selected_square = Some(clicked_square);
+            match_session.mark_recovery_dirty();
+        }
+        return;
+    };
+
+    if clicked_square == selected_square {
+        clear_match_interaction(match_session);
+        return;
+    }
+
+    if clicked_piece.is_some_and(|piece| piece.side == current_side) {
+        match_session.selected_square = Some(clicked_square);
+        match_session.mark_recovery_dirty();
+        return;
+    }
+
+    let candidate_moves: Vec<_> = match_session
+        .game_state()
+        .legal_moves()
+        .into_iter()
+        .filter(|candidate| {
+            candidate.from() == selected_square && candidate.to() == clicked_square
+        })
+        .collect();
+
+    if candidate_moves.is_empty() {
+        clear_match_interaction(match_session);
+        return;
+    }
+
+    if candidate_moves.iter().any(|candidate| candidate.promotion().is_some()) {
+        match_session.pending_promotion_move = Some(Move::new(selected_square, clicked_square));
+        match_session.mark_recovery_dirty();
+        return;
+    }
+
+    let _ = match_session.apply_move(candidate_moves[0]);
+}
+
+pub(crate) fn clear_match_interaction(match_session: &mut MatchSession) {
+    match_session.clear_interaction();
+    match_session.mark_recovery_dirty();
+}
+
+pub(crate) fn apply_promotion_choice(
+    match_session: &mut MatchSession,
+    promotion_kind: PieceKind,
+) -> AutomationResult<()> {
+    let Some(pending_move) = match_session.pending_promotion_move else {
+        return Err(AutomationError::PromotionUnavailable);
+    };
+    let _ = match_session.apply_move(Move::with_promotion(
+        pending_move.from(),
+        pending_move.to(),
+        promotion_kind,
+    ));
+    Ok(())
 }
 
 fn overlay_captures_match_input(menu_state: &ShellMenuState) -> bool {

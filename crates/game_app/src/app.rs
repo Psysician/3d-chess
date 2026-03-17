@@ -1,3 +1,10 @@
+// Headless app construction reuses the shipped shell graph so automation and
+// integration tests exercise the same plugins and resources as player startup.
+// (refs: DL-004, DL-006)
+
+use std::path::PathBuf;
+
+use bevy::state::app::StatesPlugin;
 use bevy::prelude::*;
 use bevy::window::{PresentMode, Window, WindowPlugin, WindowResolution};
 
@@ -28,12 +35,30 @@ pub fn build_app() -> App {
     let shell_theme = ShellTheme::default();
     let mut app = App::new();
 
-    install_shell_resources(&mut app, shell_theme)
+    install_shell_resources(&mut app, shell_theme, None)
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(primary_window()),
             ..default()
         }))
         .init_state::<AppScreenState>();
+    install_shell_plugins(&mut app);
+
+    app
+}
+
+#[must_use]
+pub fn build_headless_app(save_root: Option<PathBuf>) -> App {
+    let shell_theme = ShellTheme::default();
+    let mut app = App::new();
+
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(StatesPlugin)
+        .insert_resource(Assets::<Mesh>::default())
+        .insert_resource(Assets::<StandardMaterial>::default())
+        .insert_resource(ButtonInput::<KeyCode>::default())
+        .insert_resource(ButtonInput::<MouseButton>::default());
+    // Headless automation keeps the production shell graph so tests and agents exercise the same menu and persistence seams.
+    install_shell_resources(&mut app, shell_theme, save_root).init_state::<AppScreenState>();
     install_shell_plugins(&mut app);
 
     app
@@ -53,7 +78,11 @@ fn primary_window() -> Window {
     }
 }
 
-fn install_shell_resources(app: &mut App, shell_theme: ShellTheme) -> &mut App {
+fn install_shell_resources(
+    app: &mut App,
+    shell_theme: ShellTheme,
+    save_root: Option<PathBuf>,
+) -> &mut App {
     app.insert_resource(ClearColor(shell_theme.clear_color))
         .insert_resource(shell_theme)
         .insert_resource(MatchSession::start_local_match())
@@ -62,7 +91,7 @@ fn install_shell_resources(app: &mut App, shell_theme: ShellTheme) -> &mut App {
         .insert_resource(ShellMenuState::default())
         .insert_resource(RecoveryBannerState::default())
         .insert_resource(SaveLoadState::default())
-        .insert_resource(SaveRootOverride::default())
+        .insert_resource(SaveRootOverride(save_root))
 }
 
 fn install_shell_plugins(app: &mut App) -> &mut App {
@@ -95,7 +124,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, StatesPlugin));
         app.init_state::<AppScreenState>();
-        install_shell_resources(&mut app, ShellTheme::default());
+        install_shell_resources(&mut app, ShellTheme::default(), None);
 
         assert_eq!(
             app.world().resource::<State<AppScreenState>>().get(),

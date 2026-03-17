@@ -1,3 +1,7 @@
+// Snapshot accessors expose player-visible match state without leaking ECS
+// internals or moving chess authority out of `MatchSession`.
+// (ref: DL-002)
+
 //! Bevy-facing match bridge for local play, load, and recovery flows.
 //! Snapshot conversion keeps `chess_core` authoritative while the shell restores only the interaction state it needs. (ref: DL-001) (ref: DL-004)
 
@@ -129,6 +133,48 @@ impl MatchSession {
     #[must_use]
     pub fn game_state(&self) -> &GameState {
         &self.game_state
+    }
+
+    #[must_use]
+    pub fn fen(&self) -> String {
+        self.game_state.to_fen()
+    }
+
+    #[must_use]
+    pub fn selected_square(&self) -> Option<Square> {
+        self.selected_square
+    }
+
+    #[must_use]
+    pub fn legal_targets(&self) -> Vec<Square> {
+        if let Some(pending) = self.pending_promotion_move {
+            return vec![pending.to()];
+        }
+        let mut seen = std::collections::HashSet::new();
+        self.legal_targets_for_selected()
+            .into_iter()
+            .filter(|sq| seen.insert(*sq))
+            .collect()
+    }
+
+    #[must_use]
+    pub fn pending_promotion(&self) -> Option<Move> {
+        self.pending_promotion_move
+    }
+
+    #[must_use]
+    pub fn last_move_played(&self) -> Option<Move> {
+        self.last_move
+    }
+
+    #[must_use]
+    pub fn draw_availability(&self) -> DrawAvailability {
+        self.claimable_draw()
+    }
+
+    #[must_use]
+    pub fn claimed_draw_state(&self) -> Option<ClaimedDrawReason> {
+        self.claimed_draw
     }
 
     pub fn replace_game_state(&mut self, game_state: GameState) {
@@ -305,5 +351,20 @@ mod tests {
         assert!(session.claim_draw());
         assert!(session.is_finished());
         assert!(session.summary().dirty_recovery);
+    }
+
+    #[test]
+    fn stable_snapshot_helpers_surface_player_visible_state() {
+        let session = MatchSession::restore_from_snapshot(&sample_snapshot(true));
+        assert_eq!(session.fen(), "4k3/4P3/8/8/8/8/8/4K3 w - - 0 1");
+        assert_eq!(session.selected_square(), Some(square("e7")));
+        assert_eq!(session.legal_targets(), vec![square("e8")]);
+        assert_eq!(session.pending_promotion(), Some(Move::new(square("e7"), square("e8"))));
+        assert_eq!(session.last_move_played(), Some(Move::new(square("e7"), square("e8"))));
+        assert_eq!(
+            session.claimed_draw_state(),
+            Some(ClaimedDrawReason::ThreefoldRepetition)
+        );
+        assert!(!session.draw_availability().is_claimable());
     }
 }
