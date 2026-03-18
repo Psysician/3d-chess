@@ -171,6 +171,15 @@ pub(crate) fn apply_match_action(
             clear_match_interaction(match_session);
             Ok(())
         }
+        AutomationMatchAction::ClaimDraw => {
+            if match_session.claim_draw() {
+                Ok(())
+            } else {
+                Err(AutomationError::CommandIgnored(String::from(
+                    "no draw is claimable in the current position",
+                )))
+            }
+        }
     }
 }
 

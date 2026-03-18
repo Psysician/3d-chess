@@ -163,6 +163,7 @@ pub enum AutomationMatchAction {
         piece: PieceKind,
     },
     ClearInteraction,
+    ClaimDraw,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
