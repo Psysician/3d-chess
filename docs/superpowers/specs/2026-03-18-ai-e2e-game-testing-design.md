@@ -11,7 +11,7 @@ Build a two-layer testing harness that plays complete chess games to find rule b
 | Move selection | Scripted sequences + random fill | Scripted games cover known edge cases; random games explore states humans rarely reach |
 | Reporting | Panic for `cargo test` + JSON for CI | Fast feedback in development, structured artifacts for batch analysis |
 | Scale | Configurable via env var | Small default (20 games) for `cargo test`, scales to thousands for nightly/stress runs |
-| Verification scope | All four: checkmate, stalemate, draw rules, move legality invariants | Complete rules coverage after every move |
+| Verification scope | Checkmate, stalemate, draw rules, move legality invariants | Coverage of all implemented rules after every move. Note: insufficient material draws (K vs K, K+B vs K, etc.) are not yet implemented in the engine and therefore not tested. |
 
 ## Architecture
 
@@ -23,6 +23,7 @@ chess_core (Layer 1 - Rules Oracle)
   └── tests/game_oracle.rs    # Scripted scenarios + random game batches
 
 game_app (Layer 2 - Full-Stack Playthrough)
+  ├── src/automation.rs        # Add ClaimDraw variant to AutomationMatchAction (prerequisite)
   └── tests/automation_game_playthrough.rs   # Complete games through AutomationHarness
 ```
 
@@ -33,6 +34,8 @@ Layer 1 depends only on `chess_core`. Layer 2 depends on `game_app` (which trans
 ### Location
 
 `chess_core/src/testing.rs` — public module gated behind `#[cfg(feature = "test-support")]`.
+
+Why a feature flag and not `#[cfg(test)]`: `cfg(test)` only applies when compiling the crate itself for testing, not when it is a dependency of another crate under test. Since `game_app` tests need to use these types, a feature flag is required.
 
 ### MoveStrategy Trait
 
@@ -46,7 +49,13 @@ pub trait MoveStrategy {
 
 **`RandomStrategy`** — Uniform random selection from legal moves. Accepts a seed for reproducibility.
 
-**`WeightedStrategy`** — Biases toward captures (pieces on target square), checks (move puts opponent in check), promotions, en passant, and castling. Uses weighted sampling with the same seeded RNG.
+**`WeightedStrategy`** — Biases toward captures, promotions, en passant, and castling using static weights. Weights are implementation-defined and documented in the code. Does not detect checks (which would require applying each candidate move + `is_in_check`, doubling per-move cost at scale). Concrete baseline weights:
+
+- Capture: 3x base weight
+- Promotion: 5x base weight
+- En passant: 4x base weight
+- Castling: 2x base weight
+- Quiet move: 1x base weight
 
 **`ScriptedStrategy`** — Takes a `Vec<Move>`, plays them in order. Falls back to `RandomStrategy` when the script is exhausted. Supports patterns like "play Scholar's Mate opening, then random continuation."
 
@@ -58,6 +67,7 @@ Plays a complete game using one strategy per side:
 pub struct GameOracle {
     white: Box<dyn MoveStrategy>,
     black: Box<dyn MoveStrategy>,
+    max_moves: u16,  // default 500
 }
 
 impl GameOracle {
@@ -65,39 +75,67 @@ impl GameOracle {
 }
 ```
 
-Games are capped at 500 moves by default (configurable) to prevent infinite random-play loops.
+#### Game Loop
+
+The `play_game` method follows this loop:
+
+```
+1. Check game.status() — if Finished, record outcome and return.
+2. Call game.legal_moves() — if empty, the status check above should have caught it (this is itself a violation if it happens with Ongoing status).
+3. Call strategy.select_move(game, &legal_moves) to pick a move.
+4. Call game.apply_move(chosen_move):
+   - On Ok(next_state): run InvariantChecker on (game, chosen_move, next_state), record the move, advance.
+   - On Err(e): record a violation — a move from legal_moves() was rejected by apply_move(), which indicates an engine bug. Continue with a different legal move if possible.
+5. If move_count >= max_moves, stop and record outcome as MoveLimitReached.
+```
 
 ### GameRecord
 
 ```rust
+pub enum GameTermination {
+    Completed(GameStatus),    // Normal game end (checkmate, stalemate, draw)
+    MoveLimitReached(u16),    // Game capped at max_moves without terminal position
+}
+
 pub struct GameRecord {
     pub initial_fen: String,
     pub moves: Vec<Move>,
     pub final_fen: String,
-    pub outcome: GameStatus,
+    pub termination: GameTermination,
     pub violations: Vec<Violation>,
     pub move_count: u16,
 }
 ```
 
+A `MoveLimitReached` termination is not a violation — it is an expected outcome for random games that shuffle pieces without progress. It is excluded from violation analysis. Only games that terminate via `Completed` have their final status cross-checked.
+
 ### InvariantChecker
 
-Runs after every `apply_move` call. Checks:
+Runs after every `apply_move` call. Receives the state before the move, the move itself, and the state after the move. Checks:
 
 1. **King safety** — The side that just moved does not have its king in check (the engine should prevent this, but we verify).
 2. **King count** — Exactly one king per side at all times.
-3. **Piece count consistency** — No pieces appear or disappear except through captures and promotions. Total piece count only decreases (captures) or stays the same (quiet moves, promotions replace a pawn with another piece).
+3. **Piece count consistency** — Per-side, per-type accounting:
+   - On a non-promotion, non-capture move: piece counts unchanged.
+   - On a capture: the captured side loses exactly one piece of the captured type.
+   - On a promotion: the promoting side loses one pawn and gains one piece of the promotion type. If the promotion is also a capture, the captured side loses one piece.
+   - Total piece count never increases.
 4. **Castling rights monotonicity** — Castling rights only decrease, never increase.
-5. **En passant validity** — If en passant target is set, it is on the correct rank (rank 3 for Black's target, rank 6 for White's target) and a pawn of the correct side is on the adjacent rank.
+5. **En passant validity** — If en passant target is set, it is on the correct rank (0-indexed rank 2 for Black's target, 0-indexed rank 5 for White's target, matching the `Square::rank()` convention in `game.rs`), and a pawn of the correct side is on the adjacent rank.
 6. **Halfmove clock** — Resets to 0 on pawn moves and captures, increments by 1 otherwise.
-7. **Position history** — Tracks correctly for repetition detection.
+7. **Fullmove number** — Increments by 1 after Black's move, stays the same after White's move.
+8. **Position history** — Tracks correctly for repetition detection.
+
+### Lint Compatibility
+
+The workspace sets `unwrap_used = "deny"`. All code in the testing module uses `expect("descriptive message")` instead of `unwrap()`. For `rand` APIs that return `Option` (e.g., `choose()`), use `expect("legal_moves is non-empty")`.
 
 ### New Dependencies
 
-- `rand` added to `chess_core` as a dev-dependency (for strategies in tests).
-- `serde` and `serde_json` already available in the workspace for JSON reporting.
-
 The `test-support` feature in `chess_core/Cargo.toml` enables the `testing` module and adds `rand` + `serde`/`serde_json` as dependencies (not dev-dependencies, since downstream crates like `game_app` need to use the module in their tests too).
+
+- `rand` — new dependency behind `test-support` feature
+- `serde` and `serde_json` — already available in the workspace
 
 ## Section 2: Layer 1 — Rules Oracle
 
@@ -142,17 +180,32 @@ Invariant checking runs after every single move in every game.
 
 `game_app/tests/automation_game_playthrough.rs`
 
+### Prerequisite: Add `AutomationMatchAction::ClaimDraw`
+
+The current `AutomationMatchAction` enum lacks a `ClaimDraw` variant. Draw claims currently work only through a Bevy UI button press in `move_feedback.rs` calling `match_session.claim_draw()` directly. To test draw claims through automation, add:
+
+```rust
+// In AutomationMatchAction:
+ClaimDraw,
+```
+
+The dispatch arm in `apply_match_action` calls `match_session.claim_draw()`, matching the existing UI button behavior. Files modified:
+
+- `game_app/src/automation.rs` — add variant to `AutomationMatchAction`
+- `game_app/src/plugins/automation.rs` — add dispatch arm in `apply_match_action`
+- `game_app/src/automation_transport.rs` — add serde support (if `automation-transport` feature)
+
 ### Scenarios
 
 | Scenario | What it tests |
 |----------|---------------|
 | Complete game to checkmate | `StartNewMatch` -> scripted Scholar's Mate via `SubmitMove` -> verify screen transitions to `MatchResult` -> verify snapshot reports correct winner |
 | Mid-game save/load | Play 5 moves -> `SaveManual` -> `ReturnToMenu` -> load the save -> verify FEN matches -> continue to completion |
-| Recovery resume | Play 3 moves -> drop harness (simulating crash) -> new harness boots -> verify recovery banner -> resume -> verify FEN matches -> play to completion |
+| Recovery resume | Pre-populate recovery snapshot (matching existing test pattern in `automation_semantic_flow.rs`) with a FEN reflecting 3 moves played -> new harness boots -> verify recovery banner -> resume -> verify FEN matches -> play to completion |
 | Promotion through automation | Scripted promotion position -> `SubmitMove` with promotion piece -> verify piece type in snapshot |
-| Draw claim flow | Play to claimable draw position -> verify `draw_available` in snapshot -> claim draw -> verify `MatchResult` with draw outcome |
+| Draw claim flow | Play to claimable draw position -> verify `draw_available` in snapshot -> `ClaimDraw` via automation -> verify `MatchResult` with `GameOutcome::Draw(DrawReason::...)` outcome |
 | Rematch after completion | Play to checkmate -> `Rematch` -> verify fresh starting position -> play a few moves |
-| Stalemate through full stack | Scripted stalemate -> verify `GameOutcome::Draw(Stalemate)` in snapshot |
+| Stalemate through full stack | Scripted stalemate -> verify `GameOutcome::Draw(DrawReason::Stalemate)` in snapshot |
 
 ### Scale
 
@@ -161,6 +214,8 @@ Fixed at 7 scenarios. These are deterministic integration tests, not fuzzing. Th
 ## Section 4: JSON Reporting
 
 ### Report Structure
+
+`GameReport` is the serialized form of `GameRecord`, adding metadata for batch analysis:
 
 ```rust
 pub struct GameReport {
@@ -189,6 +244,8 @@ pub struct ViolationRecord {
 }
 ```
 
+Conversion: `GameReport::from_record(record: &GameRecord, seed: u64, strategy: &str) -> Self` adds the metadata fields.
+
 ### Output Directories
 
 - Layer 1: `target/test-reports/oracle/`
@@ -210,7 +267,7 @@ Every random game is seeded as `base_seed + game_index`. Base seed is fixed by d
 
 | File | Purpose |
 |------|---------|
-| `crates/chess_core/src/testing.rs` | `MoveStrategy` trait, strategies, `GameOracle`, `InvariantChecker`, `GameRecord`, reporting types |
+| `crates/chess_core/src/testing.rs` | `MoveStrategy` trait, strategies, `GameOracle`, `InvariantChecker`, `GameRecord`, `GameReport`, reporting types |
 | `crates/chess_core/tests/game_oracle.rs` | Layer 1: scripted scenarios + random game batches |
 | `crates/game_app/tests/automation_game_playthrough.rs` | Layer 2: full-stack game playthroughs via `AutomationHarness` |
 
@@ -221,9 +278,11 @@ Every random game is seeded as `base_seed + game_index`. Base seed is fixed by d
 | `crates/chess_core/Cargo.toml` | Add `test-support` feature, `rand`/`serde`/`serde_json` dependencies behind it |
 | `crates/chess_core/src/lib.rs` | Add `pub mod testing` behind `#[cfg(feature = "test-support")]` |
 | `crates/game_app/Cargo.toml` | Add `chess_core/test-support` to dev-dependencies features |
+| `crates/game_app/src/automation.rs` | Add `ClaimDraw` variant to `AutomationMatchAction` |
+| `crates/game_app/src/plugins/automation.rs` | Add `ClaimDraw` dispatch arm in `apply_match_action` |
+| `crates/game_app/src/automation_transport.rs` | Add serde support for `ClaimDraw` (conditional on `automation-transport` feature) |
 
 ### No Changes To
 
 - `chess_core/src/game.rs` — the rules engine is the system under test, not modified
-- `game_app/src/automation.rs` — the automation seam is used as-is
 - Existing test files — no modifications, only new files added
