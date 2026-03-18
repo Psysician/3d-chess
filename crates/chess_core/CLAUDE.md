@@ -17,4 +17,6 @@ This directory contains the pure Rust chess domain, including board state, move 
 | `src/pieces.rs` | Side, piece kinds, promotion validity, FEN piece tokens | Modifying piece metadata or piece-level serialization |
 | `src/square.rs` | Square coordinates, algebraic conversion, serde string encoding | Debugging square parsing or snapshot serialization |
 | `src/status.rs` | Draw availability, automatic draw reasons, game status, outcomes | Changing status reporting or draw semantics |
+| `src/testing.rs` | Feature-gated (`test-support`) test infrastructure: MoveStrategy trait, strategies, InvariantChecker, GameOracle, GameReport | Adding move strategies, invariant checks, or extending the game oracle |
 | `tests/rules.rs` | Scenario coverage for move legality, mate, castling, en passant, promotion, and draw rules | Extending rules coverage or investigating regressions |
+| `tests/game_oracle.rs` | Scripted game scenarios and configurable random game batches with invariant checking | Adding game oracle scenarios or tuning batch parameters |

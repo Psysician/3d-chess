@@ -283,7 +283,10 @@ fn random_game_batch_completes_without_violations() {
     let count = game_count();
     let seed = base_seed();
     let write_reports = report_enabled();
-    let report_dir = std::path::PathBuf::from("../../target/test-reports/oracle");
+    let report_dir = std::env::var("CARGO_TARGET_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("../../target"))
+        .join("test-reports/oracle");
 
     let mut total_violations = 0;
     let mut failed_seeds = Vec::new();

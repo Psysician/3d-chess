@@ -153,6 +153,7 @@ pub enum ViolationKind {
     FullmoveNumberWrong,
     PositionHistoryInconsistent,
     LegalMoveRejected,
+    StatusMoveGenerationMismatch,
 }
 
 fn total_piece_count(board: &BoardState) -> u8 {
@@ -466,7 +467,7 @@ impl GameOracle {
             if legal_moves.is_empty() {
                 // status() should have caught this — this is itself a violation.
                 violations.push(Violation {
-                    kind: ViolationKind::PositionHistoryInconsistent,
+                    kind: ViolationKind::StatusMoveGenerationMismatch,
                     description: format!(
                         "legal_moves() is empty but status() returned {status:?} at move {move_count}"
                     ),
@@ -541,7 +542,6 @@ pub struct GameReport {
     pub violations: Vec<ViolationRecord>,
     pub total_moves: u16,
     pub strategy: String,
-    pub timestamp_utc: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -553,9 +553,7 @@ pub struct MoveRecord {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ViolationRecord {
-    pub move_number: u16,
-    pub fen_before: String,
-    pub attempted_move: String,
+    pub index: u16,
     pub violation: String,
 }
 
@@ -581,9 +579,7 @@ impl GameReport {
             .iter()
             .enumerate()
             .map(|(i, v)| ViolationRecord {
-                move_number: u16::try_from(i).unwrap_or(u16::MAX),
-                fen_before: String::new(),
-                attempted_move: String::new(),
+                index: u16::try_from(i).unwrap_or(u16::MAX),
                 violation: v.description.clone(),
             })
             .collect();
@@ -596,7 +592,6 @@ impl GameReport {
             violations,
             total_moves: record.move_count,
             strategy: strategy.to_string(),
-            timestamp_utc: String::from("test"),
         }
     }
 
@@ -604,8 +599,7 @@ impl GameReport {
     pub fn write_to_dir(&self, dir: &std::path::Path, game_index: usize) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
         let path = dir.join(format!("game_{game_index:04}.json"));
-        let json = serde_json::to_string_pretty(self)
-            .map_err(std::io::Error::other)?;
+        let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
         std::fs::write(path, json)
     }
 }
