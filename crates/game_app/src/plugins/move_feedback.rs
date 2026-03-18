@@ -153,6 +153,10 @@ fn sync_match_hud(
     save_state: Res<SaveLoadState>,
     mut text_query: HudTextQuery<'_, '_>,
 ) {
+    if !match_session.is_changed() && !save_state.is_changed() {
+        return;
+    }
+
     let turn_label = format!(
         "{} to move",
         side_label(match_session.game_state().side_to_move())
@@ -223,6 +227,10 @@ fn update_claim_draw_banner(
     mut claim_button_query: Query<(&mut Visibility, &Children), With<ClaimDrawButton>>,
     mut button_text_query: Query<&mut Text>,
 ) {
+    if !match_session.is_changed() {
+        return;
+    }
+
     let Ok((mut visibility, children)) = claim_button_query.single_mut() else {
         return;
     };

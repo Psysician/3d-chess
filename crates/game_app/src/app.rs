@@ -4,8 +4,8 @@
 
 use std::path::PathBuf;
 
-use bevy::state::app::StatesPlugin;
 use bevy::prelude::*;
+use bevy::state::app::StatesPlugin;
 use bevy::window::{PresentMode, Window, WindowPlugin, WindowResolution};
 
 use crate::match_state::{MatchLaunchIntent, MatchSession, PendingLoadedSnapshot};

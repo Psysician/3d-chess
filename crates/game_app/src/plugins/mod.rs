@@ -1,9 +1,9 @@
 // Automation plugin exports remain opt-in so headless harness composition does
 // not alter the default player plugin graph. (refs: DL-004, DL-005)
 
-mod automation;
 mod app_shell;
 pub mod app_shell_logic;
+mod automation;
 mod board_scene;
 mod input;
 mod menu;
@@ -13,8 +13,8 @@ mod save_load;
 pub mod save_load_logic;
 mod scaffold;
 
-pub use automation::AutomationPlugin;
 pub use app_shell::AppShellPlugin;
+pub use automation::AutomationPlugin;
 pub use board_scene::{BoardScenePlugin, BoardSquareVisual};
 pub use input::ShellInputPlugin;
 pub use menu::{

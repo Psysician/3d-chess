@@ -44,8 +44,12 @@ M3 completes the local playable game loop and product shell.
 - `cargo fmt --all --check`
 - `cargo clippy --workspace --all-targets -- -D warnings`
 - `cargo test --workspace`
-- `cargo run -p game_app`
+- `cargo ci-heavy`
+- `cargo headless-rounds`
+- `cargo run -p game_app --bin game_app`
 - `cargo run -p game_app --features automation-transport --bin game_app_agent`
+- `bash tools/ci/smoke-headless-agent.sh`
+- `tools/run-game-wsl-x11.sh` for an explicit WSL X11 fallback launch
 - `cargo build --workspace --release`
 
 ## Architecture Boundaries

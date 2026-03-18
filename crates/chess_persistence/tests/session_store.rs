@@ -257,3 +257,41 @@ fn clear_recovery_reports_io_failures_when_path_is_a_directory() {
         .expect_err("directory-backed recovery path should fail to clear");
     assert!(matches!(error, StoreError::Io(_)));
 }
+
+#[test]
+fn blank_manual_save_labels_fall_back_to_timestamped_label_and_safe_slot_prefix() {
+    let temp_dir = TempDir::new().expect("temp dir should be created");
+    let store = SessionStore::new(temp_dir.path());
+    let mut snapshot = opening_snapshot("unused");
+    snapshot.metadata.label = String::from("   ");
+
+    let summary = store
+        .save_manual(snapshot)
+        .expect("blank labels should still save successfully");
+
+    assert!(summary.label.starts_with("Manual Save "));
+    assert!(summary.slot_id.starts_with("manual-save-"));
+
+    let loaded = store
+        .load_manual(&summary.slot_id)
+        .expect("generated slot id should be loadable");
+    assert_eq!(loaded.metadata().label, summary.label);
+}
+
+#[test]
+fn listing_manual_saves_ignores_non_json_entries() {
+    let temp_dir = TempDir::new().expect("temp dir should be created");
+    let store = SessionStore::new(temp_dir.path());
+    fs::create_dir_all(temp_dir.path().join("saves")).expect("save directory should exist");
+    fs::write(
+        temp_dir.path().join("saves").join("notes.txt"),
+        b"ignore me",
+    )
+    .expect("non-json fixture should be written");
+
+    let saves = store
+        .list_manual_saves()
+        .expect("non-json save entries should be ignored");
+
+    assert!(saves.is_empty());
+}

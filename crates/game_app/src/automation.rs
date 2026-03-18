@@ -12,12 +12,10 @@ use chess_persistence::{SavedSessionSummary, ShellSettings};
 #[cfg(feature = "automation-transport")]
 use serde::{Deserialize, Serialize};
 
-use crate::app::{build_headless_app, AppScreenState};
+use crate::app::{AppScreenState, build_headless_app};
 use crate::match_state::{ClaimedDrawReason, MatchSession};
 use crate::plugins::app_shell_logic;
-use crate::plugins::{
-    MenuContext, MenuPanel, RecoveryBannerState, SaveLoadState, ShellMenuState,
-};
+use crate::plugins::{MenuContext, MenuPanel, RecoveryBannerState, SaveLoadState, ShellMenuState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(
@@ -153,13 +151,17 @@ pub enum AutomationSettingsAction {
     serde(tag = "type", rename_all = "snake_case")
 )]
 pub enum AutomationMatchAction {
-    SelectSquare { square: Square },
+    SelectSquare {
+        square: Square,
+    },
     SubmitMove {
         from: Square,
         to: Square,
         promotion: Option<PieceKind>,
     },
-    ChoosePromotion { piece: PieceKind },
+    ChoosePromotion {
+        piece: PieceKind,
+    },
     ClearInteraction,
 }
 
@@ -198,10 +200,7 @@ impl Display for AutomationError {
 impl std::error::Error for AutomationError {}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-#[cfg_attr(
-    feature = "automation-transport",
-    derive(Serialize, Deserialize)
-)]
+#[cfg_attr(feature = "automation-transport", derive(Serialize, Deserialize))]
 pub struct AutomationMenuSnapshot {
     pub panel: AutomationMenuPanel,
     pub context: AutomationMenuContext,
@@ -214,10 +213,7 @@ pub struct AutomationMenuSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "automation-transport",
-    derive(Serialize, Deserialize)
-)]
+#[cfg_attr(feature = "automation-transport", derive(Serialize, Deserialize))]
 pub struct AutomationMatchSnapshot {
     pub fen: String,
     pub status: GameStatus,
@@ -231,10 +227,7 @@ pub struct AutomationMatchSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-#[cfg_attr(
-    feature = "automation-transport",
-    derive(Serialize, Deserialize)
-)]
+#[cfg_attr(feature = "automation-transport", derive(Serialize, Deserialize))]
 pub struct AutomationSaveSnapshot {
     pub manual_saves: Vec<SavedSessionSummary>,
     pub recovery: Option<SavedSessionSummary>,
@@ -244,10 +237,7 @@ pub struct AutomationSaveSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "automation-transport",
-    derive(Serialize, Deserialize)
-)]
+#[cfg_attr(feature = "automation-transport", derive(Serialize, Deserialize))]
 pub struct AutomationSnapshot {
     pub screen: AutomationScreen,
     pub menu: AutomationMenuSnapshot,
@@ -323,9 +313,7 @@ impl AutomationHarness {
                 return snapshot;
             }
         }
-        panic!(
-            "automation harness did not satisfy predicate within {max_frames} frames"
-        );
+        panic!("automation harness did not satisfy predicate within {max_frames} frames");
     }
 
     #[must_use]
@@ -358,11 +346,7 @@ pub(crate) fn capture_snapshot(world: &World) -> AutomationSnapshot {
             confirmation: menu_state.confirmation.map(confirmation_from_state),
             selected_save: menu_state.selected_save.clone(),
             status_line: menu_state.status_line.clone(),
-            shell_status: app_shell_logic::effective_shell_status(
-                menu_state,
-                save_state,
-                recovery,
-            ),
+            shell_status: app_shell_logic::effective_shell_status(menu_state, save_state, recovery),
             recovery_available: recovery.available,
             recovery_label: recovery.label.clone(),
         },
@@ -374,7 +358,9 @@ pub(crate) fn capture_snapshot(world: &World) -> AutomationSnapshot {
             pending_promotion: match_session.pending_promotion_move,
             last_move: match_session.last_move,
             claimable_draw: match_session.claimable_draw(),
-            claimed_draw: match_session.claimed_draw_reason().map(claimed_draw_from_state),
+            claimed_draw: match_session
+                .claimed_draw_reason()
+                .map(claimed_draw_from_state),
             dirty_recovery: match_session.is_recovery_dirty(),
         },
         saves: AutomationSaveSnapshot {
@@ -413,13 +399,9 @@ fn context_from_state(context: MenuContext) -> AutomationMenuContext {
     }
 }
 
-fn confirmation_from_state(
-    kind: crate::plugins::ConfirmationKind,
-) -> AutomationConfirmationKind {
+fn confirmation_from_state(kind: crate::plugins::ConfirmationKind) -> AutomationConfirmationKind {
     match kind {
-        crate::plugins::ConfirmationKind::AbandonMatch => {
-            AutomationConfirmationKind::AbandonMatch
-        }
+        crate::plugins::ConfirmationKind::AbandonMatch => AutomationConfirmationKind::AbandonMatch,
         crate::plugins::ConfirmationKind::DeleteSave => AutomationConfirmationKind::DeleteSave,
         crate::plugins::ConfirmationKind::OverwriteSave => {
             AutomationConfirmationKind::OverwriteSave
@@ -429,9 +411,7 @@ fn confirmation_from_state(
 
 fn claimed_draw_from_state(kind: ClaimedDrawReason) -> AutomationClaimedDrawReason {
     match kind {
-        ClaimedDrawReason::ThreefoldRepetition => {
-            AutomationClaimedDrawReason::ThreefoldRepetition
-        }
+        ClaimedDrawReason::ThreefoldRepetition => AutomationClaimedDrawReason::ThreefoldRepetition,
         ClaimedDrawReason::FiftyMoveRule => AutomationClaimedDrawReason::FiftyMoveRule,
     }
 }

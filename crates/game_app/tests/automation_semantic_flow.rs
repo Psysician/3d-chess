@@ -1,11 +1,12 @@
 use tempfile::tempdir;
 
 use chess_core::{GameState, Move, PieceKind, Square};
-use chess_persistence::{GameSnapshot, SaveKind, SessionStore, SnapshotMetadata, SnapshotShellState};
+use chess_persistence::{
+    GameSnapshot, SaveKind, SessionStore, SnapshotMetadata, SnapshotShellState,
+};
 use game_app::{
-    AutomationCommand, AutomationConfirmationKind, AutomationHarness,
-    AutomationMatchAction, AutomationNavigationAction, AutomationSaveAction,
-    AutomationScreen,
+    AutomationCommand, AutomationConfirmationKind, AutomationHarness, AutomationMatchAction,
+    AutomationNavigationAction, AutomationSaveAction, AutomationScreen,
 };
 
 fn square(name: &str) -> Square {
@@ -62,13 +63,18 @@ fn automation_commands_cover_start_move_save_rematch_and_return_to_menu() {
     assert_eq!(snapshot.screen, AutomationScreen::InMatch);
 
     let snapshot = harness
-        .try_submit(AutomationCommand::Match(AutomationMatchAction::SubmitMove {
-            from: square("e2"),
-            to: square("e4"),
-            promotion: None,
-        }))
+        .try_submit(AutomationCommand::Match(
+            AutomationMatchAction::SubmitMove {
+                from: square("e2"),
+                to: square("e4"),
+                promotion: None,
+            },
+        ))
         .expect("semantic move should reuse the same legality path");
-    assert_eq!(snapshot.match_state.last_move, Some(Move::new(square("e2"), square("e4"))));
+    assert_eq!(
+        snapshot.match_state.last_move,
+        Some(Move::new(square("e2"), square("e4")))
+    );
 
     harness
         .try_submit(AutomationCommand::Save(AutomationSaveAction::SaveManual {
@@ -91,10 +97,15 @@ fn automation_commands_cover_start_move_save_rematch_and_return_to_menu() {
     let snapshot = harness
         .try_submit(AutomationCommand::Step { frames: 3 })
         .expect("loaded match should settle");
-    assert_eq!(snapshot.match_state.last_move, Some(Move::new(square("e2"), square("e4"))));
+    assert_eq!(
+        snapshot.match_state.last_move,
+        Some(Move::new(square("e2"), square("e4")))
+    );
 
     harness
-        .try_submit(AutomationCommand::Navigation(AutomationNavigationAction::Rematch))
+        .try_submit(AutomationCommand::Navigation(
+            AutomationNavigationAction::Rematch,
+        ))
         .expect("rematch should be routable");
     let snapshot = harness
         .try_submit(AutomationCommand::Step { frames: 3 })
@@ -102,13 +113,19 @@ fn automation_commands_cover_start_move_save_rematch_and_return_to_menu() {
     assert_eq!(snapshot.match_state.last_move, None);
 
     harness
-        .try_submit(AutomationCommand::Navigation(AutomationNavigationAction::PauseMatch))
+        .try_submit(AutomationCommand::Navigation(
+            AutomationNavigationAction::PauseMatch,
+        ))
         .expect("pause should be routable");
     harness
-        .try_submit(AutomationCommand::Navigation(AutomationNavigationAction::ReturnToMenu))
+        .try_submit(AutomationCommand::Navigation(
+            AutomationNavigationAction::ReturnToMenu,
+        ))
         .expect("return to menu should be routable");
     harness
-        .try_submit(AutomationCommand::Confirm(AutomationConfirmationKind::AbandonMatch))
+        .try_submit(AutomationCommand::Confirm(
+            AutomationConfirmationKind::AbandonMatch,
+        ))
         .expect("abandon confirmation should be routable");
     let snapshot = harness
         .try_submit(AutomationCommand::Step { frames: 2 })
@@ -120,17 +137,24 @@ fn automation_commands_cover_start_move_save_rematch_and_return_to_menu() {
 fn automation_commands_cover_load_and_promotion_choice() {
     let root = tempdir().expect("temporary directory should be created");
     let summary = SessionStore::new(root.path())
-        .save_manual(manual_snapshot("Promotion Fixture", "7k/P7/8/8/8/8/8/4K3 w - - 0 1"))
+        .save_manual(manual_snapshot(
+            "Promotion Fixture",
+            "7k/P7/8/8/8/8/8/4K3 w - - 0 1",
+        ))
         .expect("fixture save should succeed");
     let mut harness =
         AutomationHarness::new(Some(root.path().to_path_buf())).with_semantic_automation();
     harness.boot_to_main_menu();
 
     harness
-        .try_submit(AutomationCommand::Navigation(AutomationNavigationAction::OpenSetup))
+        .try_submit(AutomationCommand::Navigation(
+            AutomationNavigationAction::OpenSetup,
+        ))
         .expect("setup should be routable");
     harness
-        .try_submit(AutomationCommand::Navigation(AutomationNavigationAction::OpenLoadList))
+        .try_submit(AutomationCommand::Navigation(
+            AutomationNavigationAction::OpenLoadList,
+        ))
         .expect("load list should be routable");
     harness
         .try_submit(AutomationCommand::Save(AutomationSaveAction::SelectSlot {
@@ -145,22 +169,33 @@ fn automation_commands_cover_load_and_promotion_choice() {
         .expect("loaded promotion fixture should settle");
 
     let snapshot = harness
-        .try_submit(AutomationCommand::Match(AutomationMatchAction::SubmitMove {
-            from: square("a7"),
-            to: square("a8"),
-            promotion: None,
-        }))
+        .try_submit(AutomationCommand::Match(
+            AutomationMatchAction::SubmitMove {
+                from: square("a7"),
+                to: square("a8"),
+                promotion: None,
+            },
+        ))
         .expect("promotion setup move should be routable");
-    assert_eq!(snapshot.match_state.pending_promotion, Some(Move::new(square("a7"), square("a8"))));
+    assert_eq!(
+        snapshot.match_state.pending_promotion,
+        Some(Move::new(square("a7"), square("a8")))
+    );
 
     let snapshot = harness
-        .try_submit(AutomationCommand::Match(AutomationMatchAction::ChoosePromotion {
-            piece: PieceKind::Queen,
-        }))
+        .try_submit(AutomationCommand::Match(
+            AutomationMatchAction::ChoosePromotion {
+                piece: PieceKind::Queen,
+            },
+        ))
         .expect("promotion choice should be routable");
     assert_eq!(
         snapshot.match_state.last_move,
-        Some(Move::with_promotion(square("a7"), square("a8"), PieceKind::Queen))
+        Some(Move::with_promotion(
+            square("a7"),
+            square("a8"),
+            PieceKind::Queen
+        ))
     );
 }
 
@@ -168,7 +203,10 @@ fn automation_commands_cover_load_and_promotion_choice() {
 fn automation_commands_cover_recovery_resume() {
     let root = tempdir().expect("temporary directory should be created");
     SessionStore::new(root.path())
-        .store_recovery(recovery_snapshot("Recovery Fixture", "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1"))
+        .store_recovery(recovery_snapshot(
+            "Recovery Fixture",
+            "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1",
+        ))
         .expect("recovery fixture should succeed");
     let mut harness =
         AutomationHarness::new(Some(root.path().to_path_buf())).with_semantic_automation();

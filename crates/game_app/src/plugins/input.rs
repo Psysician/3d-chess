@@ -212,9 +212,7 @@ pub(crate) fn apply_square_interaction(
         .game_state()
         .legal_moves()
         .into_iter()
-        .filter(|candidate| {
-            candidate.from() == selected_square && candidate.to() == clicked_square
-        })
+        .filter(|candidate| candidate.from() == selected_square && candidate.to() == clicked_square)
         .collect();
 
     if candidate_moves.is_empty() {
@@ -222,7 +220,10 @@ pub(crate) fn apply_square_interaction(
         return;
     }
 
-    if candidate_moves.iter().any(|candidate| candidate.promotion().is_some()) {
+    if candidate_moves
+        .iter()
+        .any(|candidate| candidate.promotion().is_some())
+    {
         match_session.pending_promotion_move = Some(Move::new(selected_square, clicked_square));
         match_session.mark_recovery_dirty();
         return;

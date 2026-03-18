@@ -59,3 +59,31 @@ fn default_mock_exposes_name_and_reuses_request_validation() {
         .expect_err("blank requests should still be rejected through evaluate");
     assert_eq!(error.to_string(), "position_notation must not be empty");
 }
+
+#[test]
+fn evaluate_validates_requests_before_reporting_mock_health() {
+    let mut controller = MockEngineController::new("e2e4").with_health(false);
+
+    let error = controller
+        .evaluate(&EngineRequest::new("startpos", 0))
+        .expect_err("request validation should run before health checks");
+
+    assert_eq!(
+        error.to_string(),
+        "movetime_millis must be greater than zero"
+    );
+}
+
+#[test]
+fn mock_info_echoes_the_requested_position_and_movetime() {
+    let mut controller = MockEngineController::new("c2c4");
+    let request = EngineRequest::new("fen 4k3/8/8/8/8/8/8/4K3 w - - 0 1", 250);
+
+    let response = controller
+        .evaluate(&request)
+        .expect("valid requests should succeed");
+
+    assert_eq!(response.bestmove_uci.as_deref(), Some("c2c4"));
+    assert!(response.info.contains("fen 4k3/8/8/8/8/8/8/4K3 w - - 0 1"));
+    assert!(response.info.contains("250 ms"));
+}

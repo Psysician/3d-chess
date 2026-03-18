@@ -2,8 +2,8 @@
 // into the contract without changing the GUI entry point.
 // (refs: DL-004, DL-005)
 
-pub mod board_coords;
 mod automation;
+pub mod board_coords;
 
 #[cfg(feature = "automation-transport")]
 pub mod automation_transport;
@@ -15,11 +15,10 @@ mod style;
 
 pub use app::{APP_TITLE, AppScreenState, build_app, build_headless_app, run};
 pub use automation::{
-    AutomationClaimedDrawReason, AutomationCommand, AutomationConfirmationKind,
-    AutomationError, AutomationHarness, AutomationMatchAction, AutomationMatchSnapshot,
-    AutomationMenuContext, AutomationMenuPanel, AutomationMenuSnapshot,
-    AutomationNavigationAction, AutomationResult, AutomationSaveAction,
-    AutomationSaveSnapshot, AutomationScreen, AutomationSettingsAction,
+    AutomationClaimedDrawReason, AutomationCommand, AutomationConfirmationKind, AutomationError,
+    AutomationHarness, AutomationMatchAction, AutomationMatchSnapshot, AutomationMenuContext,
+    AutomationMenuPanel, AutomationMenuSnapshot, AutomationNavigationAction, AutomationResult,
+    AutomationSaveAction, AutomationSaveSnapshot, AutomationScreen, AutomationSettingsAction,
     AutomationSnapshot,
 };
 pub use match_state::{

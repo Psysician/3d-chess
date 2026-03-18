@@ -2,4 +2,6 @@
 ci-fmt = "fmt --all --check"
 ci-lint = "clippy --workspace --all-targets -- -D warnings"
 ci-test = "test --workspace"
-run-app = "run -p game_app"
+ci-heavy = "test -p game_app --features automation-transport --test binary_target --test automation_transport --test real_world_rounds"
+headless-rounds = "test -p game_app --features automation-transport --test real_world_rounds"
+run-app = "run -p game_app --bin game_app"

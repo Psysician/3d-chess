@@ -8,10 +8,6 @@
 use bevy::prelude::*;
 use chess_core::PieceKind;
 
-use crate::automation::{
-    AutomationConfirmationKind, AutomationError, AutomationNavigationAction,
-    AutomationResult, AutomationSaveAction, AutomationSettingsAction,
-};
 use super::app_shell_logic;
 use super::input::apply_promotion_choice;
 use super::menu::{
@@ -19,6 +15,10 @@ use super::menu::{
 };
 use super::save_load::{SaveLoadRequest, SaveLoadState};
 use crate::app::AppScreenState;
+use crate::automation::{
+    AutomationConfirmationKind, AutomationError, AutomationNavigationAction, AutomationResult,
+    AutomationSaveAction, AutomationSettingsAction,
+};
 use crate::match_state::{MatchLaunchIntent, MatchSession, PendingLoadedSnapshot};
 use crate::style::ShellTheme;
 
@@ -142,9 +142,11 @@ fn settings_from_shell(action: &ShellAction) -> Option<AutomationSettingsAction>
     match action {
         ShellAction::CycleRecoveryPolicy => Some(AutomationSettingsAction::CycleRecoveryPolicy),
         ShellAction::ToggleDisplayMode => Some(AutomationSettingsAction::ToggleDisplayMode),
-        ShellAction::ToggleConfirmation(kind) => Some(AutomationSettingsAction::ToggleConfirmation {
-            kind: (*kind).into(),
-        }),
+        ShellAction::ToggleConfirmation(kind) => {
+            Some(AutomationSettingsAction::ToggleConfirmation {
+                kind: (*kind).into(),
+            })
+        }
         _ => None,
     }
 }
@@ -939,10 +941,7 @@ fn handle_shell_button_actions(
                 );
             }
             action if settings_from_shell(action).is_some() => {
-                handle_settings_action(
-                    &settings_from_shell(action).unwrap(),
-                    &mut save_requests,
-                );
+                handle_settings_action(&settings_from_shell(action).unwrap(), &mut save_requests);
             }
             ShellAction::Confirm(kind) => {
                 let _ = handle_confirmation_action(
@@ -1126,9 +1125,7 @@ pub(crate) fn handle_confirmation_action(
             menu_actions.write(MenuAction::CancelModal);
         }
         ConfirmationKind::OverwriteSave => {
-            if let Some(selected) =
-                app_shell_logic::selected_save_summary(menu_state, save_state)
-            {
+            if let Some(selected) = app_shell_logic::selected_save_summary(menu_state, save_state) {
                 save_requests.write(SaveLoadRequest::SaveManual {
                     label: selected.label.clone(),
                     slot_id: Some(selected.slot_id.clone()),

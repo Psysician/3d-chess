@@ -6,8 +6,7 @@ use tempfile::tempdir;
 
 use bevy::prelude::*;
 use game_app::{
-    AppScreenState, AutomationHarness, AutomationMenuPanel, AutomationScreen,
-    SaveRootOverride,
+    AppScreenState, AutomationHarness, AutomationMenuPanel, AutomationScreen, SaveRootOverride,
 };
 
 #[test]
@@ -29,7 +28,11 @@ fn windowed_builder_keeps_default_shell_startup_contract() {
     let harness = AutomationHarness::new(None);
 
     assert_eq!(
-        harness.app().world().resource::<State<AppScreenState>>().get(),
+        harness
+            .app()
+            .world()
+            .resource::<State<AppScreenState>>()
+            .get(),
         &AppScreenState::Boot
     );
     assert_eq!(

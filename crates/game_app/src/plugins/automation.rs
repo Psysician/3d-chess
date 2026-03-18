@@ -8,8 +8,8 @@ use bevy::prelude::*;
 
 use crate::app::AppScreenState;
 use crate::automation::{
-    capture_snapshot, AutomationCommand, AutomationError, AutomationHarness,
-    AutomationResult, AutomationSnapshot,
+    AutomationCommand, AutomationError, AutomationHarness, AutomationResult, AutomationSnapshot,
+    capture_snapshot,
 };
 use crate::match_state::MatchSession;
 
@@ -83,9 +83,7 @@ fn dispatch_automation_commands(
                 handle_settings_action(&action, &mut save_requests);
                 Ok(())
             }
-            AutomationCommand::Match(action) => {
-                apply_match_action(match_session.as_mut(), &action)
-            }
+            AutomationCommand::Match(action) => apply_match_action(match_session.as_mut(), &action),
             AutomationCommand::Confirm(kind) => handle_confirmation_action(
                 kind,
                 menu_state.as_ref(),
@@ -115,7 +113,10 @@ impl AutomationHarness {
         self
     }
 
-    pub fn try_submit(&mut self, command: AutomationCommand) -> AutomationResult<AutomationSnapshot> {
+    pub fn try_submit(
+        &mut self,
+        command: AutomationCommand,
+    ) -> AutomationResult<AutomationSnapshot> {
         self.ensure_semantic_automation();
         match command {
             AutomationCommand::Snapshot => {}
@@ -128,12 +129,22 @@ impl AutomationHarness {
                 }
             }
             command => {
-                self.app.world_mut().resource_mut::<AutomationCommandQueue>().0.push_back(command);
+                self.app
+                    .world_mut()
+                    .resource_mut::<AutomationCommandQueue>()
+                    .0
+                    .push_back(command);
                 // Frame 1: dispatch_automation_commands runs and writes MenuAction / SaveLoadRequest messages.
                 // Frame 2: downstream systems (save_load, menu routing) observe those messages and apply state changes.
                 self.app.update();
                 self.app.update();
-                if let Some(error) = self.app.world_mut().resource_mut::<AutomationLastError>().0.take() {
+                if let Some(error) = self
+                    .app
+                    .world_mut()
+                    .resource_mut::<AutomationLastError>()
+                    .0
+                    .take()
+                {
                     return Err(error);
                 }
             }
@@ -143,12 +154,19 @@ impl AutomationHarness {
     }
 
     fn ensure_semantic_automation(&mut self) {
-        if self.app.world().contains_resource::<AutomationCommandQueue>() {
+        if self
+            .app
+            .world()
+            .contains_resource::<AutomationCommandQueue>()
+        {
             return;
         }
 
         self.app.add_plugins(AutomationPlugin);
         let snapshot = capture_snapshot(self.app.world());
-        self.app.world_mut().resource_mut::<AutomationSnapshotResource>().0 = snapshot;
+        self.app
+            .world_mut()
+            .resource_mut::<AutomationSnapshotResource>()
+            .0 = snapshot;
     }
 }

@@ -111,6 +111,10 @@ fn update_square_visual_state(
     mut materials: ResMut<Assets<StandardMaterial>>,
     square_query: Query<(&BoardSquareVisual, &MeshMaterial3d<StandardMaterial>)>,
 ) {
+    if !match_session.is_changed() && !theme.is_changed() {
+        return;
+    }
+
     let legal_targets = match_session.legal_targets_for_selected();
     let checked_king_square = match match_session.status() {
         GameStatus::Ongoing { in_check: true, .. } => match_session

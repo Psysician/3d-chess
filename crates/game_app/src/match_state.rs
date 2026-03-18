@@ -359,8 +359,14 @@ mod tests {
         assert_eq!(session.fen(), "4k3/4P3/8/8/8/8/8/4K3 w - - 0 1");
         assert_eq!(session.selected_square(), Some(square("e7")));
         assert_eq!(session.legal_targets(), vec![square("e8")]);
-        assert_eq!(session.pending_promotion(), Some(Move::new(square("e7"), square("e8"))));
-        assert_eq!(session.last_move_played(), Some(Move::new(square("e7"), square("e8"))));
+        assert_eq!(
+            session.pending_promotion(),
+            Some(Move::new(square("e7"), square("e8")))
+        );
+        assert_eq!(
+            session.last_move_played(),
+            Some(Move::new(square("e7"), square("e8")))
+        );
         assert_eq!(
             session.claimed_draw_state(),
             Some(ClaimedDrawReason::ThreefoldRepetition)
