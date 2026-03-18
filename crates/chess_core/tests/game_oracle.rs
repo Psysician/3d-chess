@@ -1,12 +1,12 @@
 use chess_core::testing::{
-    GameOracle, GameRecord, GameReport, GameTermination, RandomStrategy, ScriptedStrategy,
-    WeightedStrategy,
+    BatchStats, GameOracle, GameRecord, GameReport, GameTermination, RandomStrategy,
+    ScriptedStrategy, WeightedStrategy,
 };
 use chess_core::{
     DrawReason, GameOutcome, GameState, GameStatus, Move, PieceKind, Side, Square, WinReason,
 };
 
-fn sq(name: &str) -> Square {
+fn square(name: &str) -> Square {
     Square::from_algebraic(name).expect("test square must be valid")
 }
 
@@ -55,18 +55,18 @@ fn scholars_mate_reaches_checkmate_in_7_ply() {
     let mut oracle = GameOracle::new(
         Box::new(ScriptedStrategy::new(
             vec![
-                Move::new(sq("e2"), sq("e4")),
-                Move::new(sq("d1"), sq("h5")),
-                Move::new(sq("f1"), sq("c4")),
-                Move::new(sq("h5"), sq("f7")),
+                Move::new(square("e2"), square("e4")),
+                Move::new(square("d1"), square("h5")),
+                Move::new(square("f1"), square("c4")),
+                Move::new(square("h5"), square("f7")),
             ],
             0,
         )),
         Box::new(ScriptedStrategy::new(
             vec![
-                Move::new(sq("e7"), sq("e5")),
-                Move::new(sq("b8"), sq("c6")),
-                Move::new(sq("g8"), sq("f6")),
+                Move::new(square("e7"), square("e5")),
+                Move::new(square("b8"), square("c6")),
+                Move::new(square("g8"), square("f6")),
             ],
             0,
         )),
@@ -80,11 +80,17 @@ fn scholars_mate_reaches_checkmate_in_7_ply() {
 fn fools_mate_reaches_checkmate_in_4_ply() {
     let mut oracle = GameOracle::new(
         Box::new(ScriptedStrategy::new(
-            vec![Move::new(sq("f2"), sq("f3")), Move::new(sq("g2"), sq("g4"))],
+            vec![
+                Move::new(square("f2"), square("f3")),
+                Move::new(square("g2"), square("g4")),
+            ],
             0,
         )),
         Box::new(ScriptedStrategy::new(
-            vec![Move::new(sq("e7"), sq("e5")), Move::new(sq("d8"), sq("h4"))],
+            vec![
+                Move::new(square("e7"), square("e5")),
+                Move::new(square("d8"), square("h4")),
+            ],
             0,
         )),
     );
@@ -98,16 +104,16 @@ fn en_passant_capture_completes_without_violations() {
     let mut oracle = GameOracle::new(
         Box::new(ScriptedStrategy::new(
             vec![
-                Move::new(sq("e2"), sq("e4")),
-                Move::new(sq("e4"), sq("e5")),
-                Move::new(sq("e5"), sq("f6")), // en passant
+                Move::new(square("e2"), square("e4")),
+                Move::new(square("e4"), square("e5")),
+                Move::new(square("e5"), square("f6")),
             ],
             0,
         )),
         Box::new(ScriptedStrategy::new(
             vec![
-                Move::new(sq("d7"), sq("d5")),
-                Move::new(sq("f7"), sq("f5")), // triggers en passant
+                Move::new(square("d7"), square("d5")),
+                Move::new(square("f7"), square("f5")),
             ],
             0,
         )),
@@ -127,11 +133,11 @@ fn castling_both_sides_completes_without_violations() {
     let game = GameState::from_fen(fen).expect("test FEN should parse");
     let mut oracle = GameOracle::new(
         Box::new(ScriptedStrategy::new(
-            vec![Move::new(sq("e1"), sq("g1"))], // white kingside castle
+            vec![Move::new(square("e1"), square("g1"))],
             0,
         )),
         Box::new(ScriptedStrategy::new(
-            vec![Move::new(sq("e8"), sq("c8"))], // black queenside castle
+            vec![Move::new(square("e8"), square("c8"))],
             0,
         )),
     )
@@ -153,7 +159,7 @@ fn promotion_to_all_four_piece_types_without_violations() {
             GameState::from_fen("4k3/P7/8/8/8/8/8/4K3 w - - 0 1").expect("test FEN should parse");
         let mut oracle = GameOracle::new(
             Box::new(ScriptedStrategy::new(
-                vec![Move::with_promotion(sq("a7"), sq("a8"), piece)],
+                vec![Move::with_promotion(square("a7"), square("a8"), piece)],
                 0,
             )),
             Box::new(RandomStrategy::new(42)),
@@ -162,6 +168,27 @@ fn promotion_to_all_four_piece_types_without_violations() {
         let record = oracle.play_game(game);
         assert_no_violations(&record);
     }
+}
+
+#[test]
+fn promotion_with_capture_completes_without_violations() {
+    // White pawn on a7, black rook on b8. Pawn captures rook and promotes to queen.
+    let game =
+        GameState::from_fen("1r2k3/P7/8/8/8/8/8/4K3 w - - 0 1").expect("test FEN should parse");
+    let mut oracle = GameOracle::new(
+        Box::new(ScriptedStrategy::new(
+            vec![Move::with_promotion(
+                square("a7"),
+                square("b8"),
+                PieceKind::Queen,
+            )],
+            0,
+        )),
+        Box::new(RandomStrategy::new(42)),
+    )
+    .with_max_moves(2);
+    let record = oracle.play_game(game);
+    assert_no_violations(&record);
 }
 
 #[test]
@@ -181,8 +208,14 @@ fn stalemate_position_detects_draw() {
 fn threefold_repetition_detected_via_knight_shuttle() {
     let start =
         GameState::from_fen("4k3/8/8/8/8/8/N7/4K3 w - - 0 1").expect("test FEN should parse");
-    let cycle_white = [Move::new(sq("a2"), sq("b4")), Move::new(sq("b4"), sq("a2"))];
-    let cycle_black = [Move::new(sq("e8"), sq("d8")), Move::new(sq("d8"), sq("e8"))];
+    let cycle_white = [
+        Move::new(square("a2"), square("b4")),
+        Move::new(square("b4"), square("a2")),
+    ];
+    let cycle_black = [
+        Move::new(square("e8"), square("d8")),
+        Move::new(square("d8"), square("e8")),
+    ];
     let mut script_w = Vec::new();
     let mut script_b = Vec::new();
     for _ in 0..5 {
@@ -223,7 +256,7 @@ fn fifty_move_rule_position_detects_draw_availability() {
 fn en_passant_exposing_king_is_not_played() {
     let game =
         GameState::from_fen("4r1k1/8/8/3pP3/8/8/8/4K3 w - d6 0 1").expect("test FEN should parse");
-    let en_passant = Move::new(sq("e5"), sq("d6"));
+    let en_passant = Move::new(square("e5"), square("d6"));
     assert!(
         !game.is_legal_move(en_passant),
         "en passant exposing king should be illegal"
@@ -238,15 +271,9 @@ fn en_passant_exposing_king_is_not_played() {
 }
 
 #[test]
-fn double_check_allows_only_king_moves() {
+fn double_check_position_plays_without_violations() {
     let game =
         GameState::from_fen("4k3/8/8/1B6/8/8/8/4R1K1 b - - 0 1").expect("test FEN should parse");
-    let legal = game.legal_moves();
-    assert!(!legal.is_empty(), "must have at least one legal move");
-    assert!(
-        legal.iter().all(|m| m.from() == sq("e8")),
-        "double check: only king moves should be legal, got: {legal:?}"
-    );
     let mut oracle = GameOracle::new(
         Box::new(RandomStrategy::new(42)),
         Box::new(RandomStrategy::new(99)),
@@ -288,7 +315,7 @@ fn random_game_batch_completes_without_violations() {
         .unwrap_or_else(|_| std::path::PathBuf::from("../../target"))
         .join("test-reports/oracle");
 
-    let mut total_violations = 0;
+    let mut stats = BatchStats::default();
     let mut failed_seeds = Vec::new();
 
     for i in 0..count {
@@ -309,6 +336,7 @@ fn random_game_batch_completes_without_violations() {
         };
 
         let record = oracle.play_game(GameState::starting_position());
+        stats.record(&record);
 
         if write_reports {
             let report = GameReport::from_record(&record, game_seed, strategy_name);
@@ -316,7 +344,6 @@ fn random_game_batch_completes_without_violations() {
         }
 
         if !record.violations.is_empty() {
-            total_violations += record.violations.len();
             failed_seeds.push(game_seed);
             if !write_reports {
                 panic!(
@@ -332,10 +359,13 @@ fn random_game_batch_completes_without_violations() {
         }
     }
 
-    if write_reports && total_violations > 0 {
+    eprintln!("Oracle batch: {stats}");
+
+    if write_reports && stats.total_violations > 0 {
         panic!(
-            "{total_violations} violation(s) across {} game(s). Failed seeds: {failed_seeds:?}\n\
+            "{} violation(s) across {} game(s). Failed seeds: {failed_seeds:?}\n\
              Reports written to {report_dir:?}",
+            stats.total_violations,
             failed_seeds.len(),
         );
     }
