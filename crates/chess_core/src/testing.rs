@@ -327,8 +327,7 @@ impl InvariantChecker {
             .piece_at(mv.from())
             .expect("moved piece must exist at source");
         let is_capture = before.piece_at(mv.to()).is_some()
-            || (moved_piece.kind == PieceKind::Pawn
-                && before.en_passant_target() == Some(mv.to()));
+            || (moved_piece.kind == PieceKind::Pawn && before.en_passant_target() == Some(mv.to()));
         let is_pawn_move = moved_piece.kind == PieceKind::Pawn;
 
         let expected = if is_pawn_move || is_capture {
@@ -606,7 +605,7 @@ impl GameReport {
         std::fs::create_dir_all(dir)?;
         let path = dir.join(format!("game_{game_index:04}.json"));
         let json = serde_json::to_string_pretty(self)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         std::fs::write(path, json)
     }
 }
@@ -657,7 +656,10 @@ mod tests {
             Square::from_algebraic("d4").expect("valid"),
             Square::from_algebraic("d7").expect("valid"),
         );
-        assert!(legal_moves.contains(&capture), "capture must be in legal moves");
+        assert!(
+            legal_moves.contains(&capture),
+            "capture must be in legal moves"
+        );
 
         // Run 100 trials and count how many times the capture is selected.
         let mut capture_count = 0;
@@ -723,14 +725,22 @@ mod tests {
                 Square::from_algebraic("e4").expect("valid"),
             ))
             .expect("legal");
-        assert_eq!(after_e4.fullmove_number(), 1, "fullmove stays 1 after white moves");
+        assert_eq!(
+            after_e4.fullmove_number(),
+            1,
+            "fullmove stays 1 after white moves"
+        );
 
         let mv = Move::new(
             Square::from_algebraic("e7").expect("valid"),
             Square::from_algebraic("e5").expect("valid"),
         );
         let after_e5 = after_e4.apply_move(mv).expect("legal");
-        assert_eq!(after_e5.fullmove_number(), 2, "fullmove becomes 2 after black moves");
+        assert_eq!(
+            after_e5.fullmove_number(),
+            2,
+            "fullmove becomes 2 after black moves"
+        );
 
         let violations = InvariantChecker::check(&after_e4, &mv, &after_e5);
         assert!(

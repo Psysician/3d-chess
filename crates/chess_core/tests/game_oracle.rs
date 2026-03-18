@@ -80,17 +80,11 @@ fn scholars_mate_reaches_checkmate_in_7_ply() {
 fn fools_mate_reaches_checkmate_in_4_ply() {
     let mut oracle = GameOracle::new(
         Box::new(ScriptedStrategy::new(
-            vec![
-                Move::new(sq("f2"), sq("f3")),
-                Move::new(sq("g2"), sq("g4")),
-            ],
+            vec![Move::new(sq("f2"), sq("f3")), Move::new(sq("g2"), sq("g4"))],
             0,
         )),
         Box::new(ScriptedStrategy::new(
-            vec![
-                Move::new(sq("e7"), sq("e5")),
-                Move::new(sq("d8"), sq("h4")),
-            ],
+            vec![Move::new(sq("e7"), sq("e5")), Move::new(sq("d8"), sq("h4"))],
             0,
         )),
     );
@@ -155,8 +149,8 @@ fn promotion_to_all_four_piece_types_without_violations() {
         PieceKind::Bishop,
         PieceKind::Knight,
     ] {
-        let game = GameState::from_fen("4k3/P7/8/8/8/8/8/4K3 w - - 0 1")
-            .expect("test FEN should parse");
+        let game =
+            GameState::from_fen("4k3/P7/8/8/8/8/8/4K3 w - - 0 1").expect("test FEN should parse");
         let mut oracle = GameOracle::new(
             Box::new(ScriptedStrategy::new(
                 vec![Move::with_promotion(sq("a7"), sq("a8"), piece)],
@@ -172,8 +166,8 @@ fn promotion_to_all_four_piece_types_without_violations() {
 
 #[test]
 fn stalemate_position_detects_draw() {
-    let game = GameState::from_fen("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1")
-        .expect("test FEN should parse");
+    let game =
+        GameState::from_fen("7k/5Q2/6K1/8/8/8/8/8 b - - 0 1").expect("test FEN should parse");
     let mut oracle = GameOracle::new(
         Box::new(RandomStrategy::new(0)),
         Box::new(RandomStrategy::new(0)),
@@ -185,8 +179,8 @@ fn stalemate_position_detects_draw() {
 
 #[test]
 fn threefold_repetition_detected_via_knight_shuttle() {
-    let start = GameState::from_fen("4k3/8/8/8/8/8/N7/4K3 w - - 0 1")
-        .expect("test FEN should parse");
+    let start =
+        GameState::from_fen("4k3/8/8/8/8/8/N7/4K3 w - - 0 1").expect("test FEN should parse");
     let cycle_white = [Move::new(sq("a2"), sq("b4")), Move::new(sq("b4"), sq("a2"))];
     let cycle_black = [Move::new(sq("e8"), sq("d8")), Move::new(sq("d8"), sq("e8"))];
     let mut script_w = Vec::new();
@@ -210,8 +204,8 @@ fn threefold_repetition_detected_via_knight_shuttle() {
 
 #[test]
 fn fifty_move_rule_position_detects_draw_availability() {
-    let game = GameState::from_fen("4k3/8/8/8/8/8/8/4K3 w - - 150 1")
-        .expect("test FEN should parse");
+    let game =
+        GameState::from_fen("4k3/8/8/8/8/8/8/4K3 w - - 150 1").expect("test FEN should parse");
     let mut oracle = GameOracle::new(
         Box::new(RandomStrategy::new(0)),
         Box::new(RandomStrategy::new(0)),
@@ -227,8 +221,8 @@ fn fifty_move_rule_position_detects_draw_availability() {
 
 #[test]
 fn en_passant_exposing_king_is_not_played() {
-    let game = GameState::from_fen("4r1k1/8/8/3pP3/8/8/8/4K3 w - d6 0 1")
-        .expect("test FEN should parse");
+    let game =
+        GameState::from_fen("4r1k1/8/8/3pP3/8/8/8/4K3 w - d6 0 1").expect("test FEN should parse");
     let en_passant = Move::new(sq("e5"), sq("d6"));
     assert!(
         !game.is_legal_move(en_passant),
@@ -245,8 +239,8 @@ fn en_passant_exposing_king_is_not_played() {
 
 #[test]
 fn double_check_allows_only_king_moves() {
-    let game = GameState::from_fen("4k3/8/8/1B6/8/8/8/4R1K1 b - - 0 1")
-        .expect("test FEN should parse");
+    let game =
+        GameState::from_fen("4k3/8/8/1B6/8/8/8/4R1K1 b - - 0 1").expect("test FEN should parse");
     let legal = game.legal_moves();
     assert!(!legal.is_empty(), "must have at least one legal move");
     assert!(

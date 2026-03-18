@@ -1,6 +1,8 @@
 use tempfile::tempdir;
 
-use chess_core::{DrawReason, GameOutcome, GameState, GameStatus, PieceKind, Side, Square, WinReason};
+use chess_core::{
+    DrawReason, GameOutcome, GameState, GameStatus, PieceKind, Side, Square, WinReason,
+};
 use chess_persistence::{
     GameSnapshot, SaveKind, SessionStore, SnapshotMetadata, SnapshotShellState,
 };
@@ -20,11 +22,13 @@ fn submit_move(
     promotion: Option<PieceKind>,
 ) {
     harness
-        .try_submit(AutomationCommand::Match(AutomationMatchAction::SubmitMove {
-            from: sq(from),
-            to: sq(to),
-            promotion,
-        }))
+        .try_submit(AutomationCommand::Match(
+            AutomationMatchAction::SubmitMove {
+                from: sq(from),
+                to: sq(to),
+                promotion,
+            },
+        ))
         .expect("move should succeed");
 }
 
