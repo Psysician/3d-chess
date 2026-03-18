@@ -15,3 +15,6 @@ pub use square::Square;
 pub use status::{
     AutomaticDrawReason, DrawAvailability, DrawReason, GameOutcome, GameStatus, WinReason,
 };
+
+#[cfg(feature = "test-support")]
+pub mod testing;

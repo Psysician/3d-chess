@@ -4,11 +4,17 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+test-support = ["dep:rand", "dep:serde_json"]
+
 [dependencies]
 serde.workspace = true
+rand = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
-serde_json.workspace = true
+chess_core = { path = ".", features = ["test-support"] }
 
 [lints]
 workspace = true

@@ -16,6 +16,7 @@ rust-version = "1.93"
 bevy = "=0.17.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
+rand = "0.9"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
